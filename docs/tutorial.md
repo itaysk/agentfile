@@ -14,7 +14,7 @@ Agentfile is:
 
 Let's define a minimal Agent:
 
-```yaml
+```yaml source=/docs/examples/hello-world/Agentfile.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -39,7 +39,7 @@ Authoring agents can quickly turn you into a Markdown engineer. It's inconvenien
 
 Values can be inlined or sourced externally.
 
-```yaml
+```yaml source=/docs/examples/hello-world-sources/Agentfile.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -51,10 +51,10 @@ spec:
     text: |
       say hi like they do in Hawaii!
   skills:
-    - oci: docker.io/itaysk/world-greetings-skill:latest
+    - http: https://github.com/itaysk/world-greetings-skill/archive/refs/tags/v0.0.1.tar.gz
 ```
 
-The system prompt is fetched from a central git repository. The skill is fetched from a container image registry. Fetching and assembling assets is handled automatically.
+The system prompt is fetched from a central git repository. The skill is fetched from a web URL. Fetching and assembling assets is handled automatically.
 There are various ways to source assets. Assets can also be developed in the local project. >>
 
 ---
@@ -63,14 +63,14 @@ There are various ways to source assets. Assets can also be developed in the loc
 
 The directory where the Agentfile lives is considered the project home. While an Agentfile could define every single asset in YAML, it can also automatically discover assets by convention in the current project.
 
-```.
+```
 Agentfile.yaml
 skills/
   world-greetings/
     SKILL.md
 ```
 
-```yaml
+```yaml source=/docs/examples/hello-world-project-skill-1/Agentfile.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -84,22 +84,22 @@ spec:
 We've omitted the explicit skill declaration and instead let it be discovered under the conventional `skills` directory. There are many other conventional alternatives to Agentfile settings.
 You can also mix explicit and implicit assets:
 
-```.
+```
 Agentfile.yaml
 prompt.md
 ```
 
-```yaml
+```yaml  source=/docs/examples/hello-world-project-skill-2/Agentfile.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
   name: hello-world
 spec:
   skills:
-    - oci: docker.io/itaysk/world-greetings-skill:latest
+    - http: https://github.com/itaysk/world-greetings-skill/archive/refs/tags/v0.0.1.tar.gz
 ```
 
-Here we fetch the skill from a container image registry again, but discover the prompt file by convention.
+Here we fetch the skill as a web URL again, but discover the prompt file by convention.
 Again, fetching and assembling assets is handled automatically. If this feels unstable for production use, keep reading about the lock file. >>
 
 ---
@@ -110,7 +110,7 @@ The lock file is a complete and accurate version of the Agentfile. Technically, 
 
 The following Agentfile:
 
-```yaml
+```yaml source=/docs/examples/hello-world-sources/Agentfile.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -120,7 +120,9 @@ spec:
     git: https://github.com/jujumilk3/leaked-system-prompts//openai-chatgpt5-codex_20260325.md
   prompt:
     text: |
-      say hi!
+      say hi like they do in Hawaii!
+  skills:
+    - http: https://github.com/itaysk/world-greetings-skill/archive/refs/tags/v0.0.1.tar.gz
 ```
 
 Would be resolved into a lock file like:
@@ -137,10 +139,10 @@ spec:
     checksum: a1b2c3
   prompt:
     text: |
-      say hi!
+      say hi like they do in Hawaii!
     checksum: a1b2c3
   skills:
-    - file: /skills/world-greetings/
+    - http: https://github.com/itaysk/world-greetings-skill/archive/refs/tags/v0.0.1.tar.gz
       checksum: a1b2c3
 ```
 

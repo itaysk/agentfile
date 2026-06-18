@@ -1,0 +1,8 @@
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello-world
+spec:
+  prompt:
+    text: |
+      say hi like they do in Hawaii!
