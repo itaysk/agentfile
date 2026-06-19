@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Sync fenced code blocks in docs Markdown from `source=` annotations.
+"""Check or sync fenced code blocks in docs Markdown from `source=` annotations.
 
 For each fenced block like ```yaml source=examples/foo.yaml ... ```,
-the body is replaced with the current contents of that source file. Source paths
-are resolved from the repository root, so `source=/docs/examples/foo.yaml` and
+the body is compared with the current contents of that source file. With
+`--write`, discrepant blocks are replaced. Source paths are resolved from the
+repository root, so `source=/docs/examples/foo.yaml` and
 `source=docs/examples/foo.yaml` both reference the same file.
 """
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -101,28 +103,62 @@ def markdown_paths(args: list[str]) -> list[Path]:
     return sorted(DOCS_DIR.rglob("*.md"))
 
 
-def main() -> int:
-    all_missing: list[tuple[Path, str]] = []
+def display_path(path: Path) -> Path:
+    try:
+        return path.relative_to(REPO_ROOT)
+    except ValueError:
+        return path
 
-    for md_path in markdown_paths(sys.argv[1:]):
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Check Markdown code blocks annotated with source= against their source files.",
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="update discrepant Markdown code blocks instead of only reporting them",
+    )
+    parser.add_argument(
+        "paths",
+        nargs="*",
+        help="Markdown files to check; defaults to every Markdown file under docs/",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    all_missing: list[tuple[Path, str]] = []
+    all_updated: list[tuple[Path, int]] = []
+
+    for md_path in markdown_paths(args.paths):
         original = md_path.read_text()
         new_text, updated, missing = sync(original)
 
         for src in missing:
             all_missing.append((md_path, src))
 
-        display_path = md_path.relative_to(REPO_ROOT)
+        shown_path = display_path(md_path)
         if new_text != original:
-            md_path.write_text(new_text)
-            print(f"{display_path}: synced {updated} block(s)")
-        else:
-            print(f"{display_path}: already in sync")
+            all_updated.append((md_path, updated))
+            if args.write:
+                md_path.write_text(new_text)
+                print(f"{shown_path}: synced {updated} block(s)")
+            else:
+                print(f"{shown_path}: {updated} block(s) out of sync")
+        elif args.write:
+            print(f"{shown_path}: already in sync")
 
     for md_path, src in all_missing:
-        display_path = md_path.relative_to(REPO_ROOT)
-        print(f"warning: {display_path}: source not found: {src}", file=sys.stderr)
+        shown_path = display_path(md_path)
+        print(f"warning: {shown_path}: source not found: {src}", file=sys.stderr)
 
-    return 1 if all_missing else 0
+    if all_missing:
+        return 1
+    if all_updated and not args.write:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

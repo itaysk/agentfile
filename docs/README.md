@@ -18,8 +18,14 @@ spec:
 ```
 ~~~
 
-Sync examples with docs using [./sync-examples.py](./sync-examples.py).
+Check examples against docs using [./sync-examples.py](./sync-examples.py).
 
 ```bash
-python3 docs/examples.py
+python3 docs/sync-examples.py
+```
+
+Sync discrepant examples into the docs with `--write`.
+
+```bash
+python3 docs/sync-examples.py --write
 ```
