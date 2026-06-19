@@ -4,9 +4,9 @@ metadata:
   name: hello-world
 spec:
   systemPrompt:
-    git: 
+    git:
       url: https://github.com/jujumilk3/leaked-system-prompts//openai-chatgpt5-codex_20260325.md
-      ref: v0.0.1 
+      ref: v0.0.1
   prompt:
     text: |
       say hi like they do in Hawaii!

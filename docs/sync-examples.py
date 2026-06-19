@@ -31,8 +31,9 @@ def is_fence_close(line: str, fence_char: str, fence_len: int) -> bool:
     return stripped.startswith(fence_char * fence_len) and set(stripped) <= {fence_char}
 
 
-def sync(text: str) -> tuple[str, int, list[str]]:
+def sync(text: str) -> tuple[str, int, list[tuple[int, str]], list[str]]:
     updated = 0
+    updated_sources: list[tuple[int, str]] = []
     missing: list[str] = []
     lines = text.splitlines(keepends=True)
     output: list[str] = []
@@ -91,10 +92,11 @@ def sync(text: str) -> tuple[str, int, list[str]]:
         new_block = f"{line}{body}{close_line}"
         if new_block != old_block:
             updated += 1
+            updated_sources.append((block_start + 1, src))
         output.append(new_block)
         index += 1
 
-    return "".join(output), updated, missing
+    return "".join(output), updated, updated_sources, missing
 
 
 def markdown_paths(args: list[str]) -> list[Path]:
@@ -130,23 +132,25 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     all_missing: list[tuple[Path, str]] = []
-    all_updated: list[tuple[Path, int]] = []
+    all_updated: list[tuple[Path, list[tuple[int, str]]]] = []
 
     for md_path in markdown_paths(args.paths):
         original = md_path.read_text()
-        new_text, updated, missing = sync(original)
+        new_text, updated, updated_sources, missing = sync(original)
 
         for src in missing:
             all_missing.append((md_path, src))
 
         shown_path = display_path(md_path)
         if new_text != original:
-            all_updated.append((md_path, updated))
+            all_updated.append((md_path, updated_sources))
             if args.write:
                 md_path.write_text(new_text)
                 print(f"{shown_path}: synced {updated} block(s)")
             else:
                 print(f"{shown_path}: {updated} block(s) out of sync")
+            for line_number, src in updated_sources:
+                print(f"  line {line_number}: source: {src}")
         elif args.write:
             print(f"{shown_path}: already in sync")
 
