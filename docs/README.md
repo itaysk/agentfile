@@ -1,4 +1,4 @@
-- [tutorial.md](intro.md) - Walkthrough what Agentfile is. not supposed to cover every single feature, not even the important ones, just to give a an idea of what is Agentfile is and how it's like to use it. 
+- [tutorial.md](intro.md) - Tutorial walking you through what Agentfile is, it's design rationale and core concepts.
 - [man.md](man.md) - Full reference manual. Should document every single feature and behavior.
 - [examples/](examples/) - Examples files for various features and scenarios which are also used for e2e/sanity tests.
 

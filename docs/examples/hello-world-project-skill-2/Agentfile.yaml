@@ -1,7 +1,0 @@
-apiVersion: agentfile.build/v1
-kind: Agent
-metadata:
-  name: hello-world
-spec:
-  skills:
-    - http: https://github.com/itaysk/world-greetings-skill/archive/refs/tags/v0.0.1.tar.gz
