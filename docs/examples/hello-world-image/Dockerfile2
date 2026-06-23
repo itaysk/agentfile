@@ -1,0 +1,4 @@
+FROM itaysk/af-claudecode:latest
+
+RUN apk update && apk add --no-cache uv
+RUN uv tool install mcp-server-time

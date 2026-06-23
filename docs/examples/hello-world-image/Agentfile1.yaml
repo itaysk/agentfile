@@ -5,6 +5,9 @@ metadata:
 spec:
   harness:
     claudecode: {}
+    image: myimage:latest
   llm:
     anthropic:
       model: haiku-4.5
+  prompt: |
+    say hi using the cowsay command!

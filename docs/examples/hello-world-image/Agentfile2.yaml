@@ -1,0 +1,15 @@
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello-world
+spec:
+  harness:
+    claudecode: {}
+    image: myimage:latest
+  llm:
+    anthropic:
+      model: haiku-4.5
+  prompt: |
+    say hi! if it's before 12AM say good morning.
+  mcps:
+    - command: ["uv", "tool", "run", "mcp-server-time"]

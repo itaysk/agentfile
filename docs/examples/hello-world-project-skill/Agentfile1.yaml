@@ -3,12 +3,17 @@ kind: Agent
 metadata:
   name: hello-world
 spec:
-  systemPrompt:
-    git:
-      url: https://github.com/jujumilk3/leaked-system-prompts//openai-chatgpt5-codex_20260325.md
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: claude-haiku-4-5
   prompt:
     text: |
-      say hi!
+      say hi like they do in Hawaii!
+  systemPrompt:
+    git:
+      url: https://github.com.com/itaysk/agentfile//docs/examples/test-sys-prompt.md
   skills:
     - fs:
-        projectPath: /skills/world-greetings
+        path: skills/world-greetings

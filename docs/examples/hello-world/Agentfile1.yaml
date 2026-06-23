@@ -3,6 +3,11 @@ kind: Agent
 metadata:
   name: hello-world
 spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: haiku-4.5
   prompt:
     text: |
       say hi!
