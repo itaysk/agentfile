@@ -198,8 +198,9 @@ spec:
   llm:
     anthropic:
       model: haiku-4.5
-  prompt: |
-    say hi using the cowsay command!
+  prompt: 
+    text: |
+      say hi using the cowsay command!
 ```
 
 CLI tools are straightforward for agents to use, but MCP servers require additional setup to register with the agent harness.  
@@ -224,8 +225,9 @@ spec:
   llm:
     anthropic:
       model: haiku-4.5
-  prompt: |
-    say hi! if it's before 12AM say good morning.
+  prompt: 
+    text: |
+      say hi! if it's before 12AM say good morning.
   mcps:
     - command: ["uv", "tool", "run", "mcp-server-time"]
 ```
@@ -234,3 +236,91 @@ Notice the Dockerfile installed the MCP server in the agent image, and the Agent
 
 ---
 
+## Workspace
+
+The agent's "workspace" is the special directory `/agent/workspace` inside the agent container. The agent is configured to use it for work-in-progress, state, and artifacts storage.  
+You can bind-mount the workspace to an existing directory. Do this if you want to seed agent's workspace (input), or access the agent's work once it's done (output).
+
+```yaml
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello-world
+spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: haiku-4.5
+  prompt:
+    text: |
+      get a name to greet from the file @./name
+      write a greeting to this name
+      write the result into a zip file called `greeting.zip`
+```
+
+Notice the agent handles input and output via the workspace.
+
+```bash
+mkdir /tmp/greetings && cd /tmp/greetings
+echo 'itay' > ./name
+docker run -v /tmp/greetings:/agent/workspace hello-world
+unzip -p ./greeting.zip #print the contents of the zip
+```
+
+So far we've built the agent image and ran it as a regular container. While that's useful for deploying agents, running agents with the cli runner has some benefits. >>
+
+---
+
+## Run CLI
+
+The `af` CLI has additional functionality in addition to the `af build` command.
+
+Shortcut long commands, register agents for easier running, and track running agents:
+
+```bash
+af run -f Agentfile.yaml # build & run in one go
+af agents add -f Agentfile.yaml # register hello-world agent
+af run hello-world # run agent by name, no need to locate the Agentfile.
+af sessions list hello-world # view past runs history
+```
+
+Agentfile fields can be overridden at runtime:
+
+```bash
+af run hello-world --llm.anthropic.model "sonnet-4.5" # change model for single run
+```
+
+This feature can be utilized for creating ad-hoc agents.  
+Create a general agent as a template:
+
+```yaml
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: cc
+spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: haiku-4.5
+```
+
+Then launch ad-hoc agents based on it:
+
+```bash
+af run cc --prompt "say hi!"
+af run cc -p "say bye!" # short flags are also supported
+```
+
+The run CLI can also facilitate runtime setup.  
+For example, the `--in` flag lets you set a host directory to bind-mount to the workspace (instead of manual docker run command), and the `--here` flag sets the workspace to the current current working directory.
+
+```bash
+af run --in /tmp/greetings hello-world
+
+cd /tmp/greetings && af run --here hello-world
+```
+
+This pattern is especially useful for agents that perform the same work on different working directories. For example, a planner agent, coder agent, reviewer agent, all collaborating on the same code repository.
