@@ -282,7 +282,7 @@ Shortcut long commands, register agents for easier running, and track running ag
 
 ```bash
 af run -f Agentfile.yaml # build & run in one go
-af agents add -f Agentfile.yaml # register hello-world agent
+af agents register -f Agentfile.yaml # register hello-world agent
 af run hello-world # run agent by name, no need to locate the Agentfile.
 ```
 
@@ -312,7 +312,7 @@ Then launch ad-hoc agents based on it:
 
 ```bash
 af run cc --prompt "say hi!"
-af run cc -p "say bye!" # short flags are also supported
+af run cc --prompt "say bye!"
 ```
 
 The run CLI can also facilitate runtime setup.  
