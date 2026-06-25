@@ -1,0 +1,58 @@
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: ""
+  version: ""
+spec:
+  harness:
+    image: ""
+    # mutually exclusive:
+    claudecode: {}
+    codex: {}
+    pi: {}
+  llm:
+    # mutually exclusive:
+    anthropic:
+      model: ""
+    openai:
+      model: ""
+    openrouter:
+      model: ""
+  prompt: # seed prompt
+    # common sources:
+    # mutually exclusive:
+    text: "" # verbatim
+    git: # git repository
+      url: "" # git url. use `//` for in-repo path traversal
+      # mutually exclusive:
+      commit: "" # commit id
+      ref: "" # git ref suffix
+    http: # web
+      url: ""
+      archive: false # extract the downloaded archive
+    fs: # filesystem
+      # mutually exclusive:
+      path: "" # relative to this file
+      absolutePath: "" # absolute in the agent image filesystem
+  systemPrompt:
+    # common sources
+  skills:
+    - # common sources
+  mcps:
+    - name: ""
+      # mutually exclusive:
+      stdio:
+        command: [""] # command parts as strings array
+        envs:
+          - name: ""
+            value: ""
+      http:
+        url: ""
+        headers:
+          - name: ""
+            value: ""
+  envs:
+    - name: ""
+      value: ""
+  workspace:
+    hostBindPath: "" # bind-mount when run. absolute path in host filesystem

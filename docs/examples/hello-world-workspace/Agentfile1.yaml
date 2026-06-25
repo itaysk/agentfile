@@ -1,0 +1,15 @@
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello-world
+spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: haiku-4.5
+  prompt:
+    text: |
+      get a name to greet from the file @./name
+      write a greeting to this name
+      write the result into a zip file called `greeting.zip`

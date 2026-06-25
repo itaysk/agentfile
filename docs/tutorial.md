@@ -155,12 +155,12 @@ git:
   url: https://github.com/example/example
   ref: v0.0.1 # fetch from a specific ref (head or tag)
 
-file:
+fs:
   absolutePath: /etc/file.md # fetch from absolute path
 
 http:
   url: https://example.com/skills.tar.gz
-  unarchive: true # extract the downloaded asset
+  archive: true # extract the downloaded asset
 ```
 
 For a complete reference of all sources and their configuration parameters, see [here]().
@@ -229,7 +229,9 @@ spec:
     text: |
       say hi! if it's before 12AM say good morning.
   mcps:
-    - command: ["uv", "tool", "run", "mcp-server-time"]
+    - name: time-mcp
+      stdio:
+        command: ["uv", "tool", "run", "mcp-server-time"]
 ```
 
 Notice the Dockerfile installed the MCP server in the agent image, and the Agentfile registers is with the harness (claude code in this case).
@@ -241,7 +243,7 @@ Notice the Dockerfile installed the MCP server in the agent image, and the Agent
 The agent's "workspace" is the special directory `/agent/workspace` inside the agent container. The agent is configured to use it for work-in-progress, state, and artifacts storage.  
 You can bind-mount the workspace to an existing directory. Do this if you want to seed agent's workspace (input), or access the agent's work once it's done (output).
 
-```yaml
+```yaml source=/docs/examples/hello-world-workspace/Agentfile1.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -282,7 +284,6 @@ Shortcut long commands, register agents for easier running, and track running ag
 af run -f Agentfile.yaml # build & run in one go
 af agents add -f Agentfile.yaml # register hello-world agent
 af run hello-world # run agent by name, no need to locate the Agentfile.
-af sessions list hello-world # view past runs history
 ```
 
 Agentfile fields can be overridden at runtime:
