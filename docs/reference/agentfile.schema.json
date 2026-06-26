@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentfile.build/schemas/agentfile.schema.json",
+  "title": "Agentfile",
+  "description": "Schema for agentfile.build/v1 Agent resources.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {
+      "const": "agentfile.build/v1"
+    },
+    "kind": {
+      "const": "Agent"
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/spec"
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "default": "latest"
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["harness", "llm"],
+      "properties": {
+        "harness": {
+          "$ref": "#/$defs/harness"
+        },
+        "llm": {
+          "$ref": "#/$defs/llm"
+        },
+        "prompt": {
+          "$ref": "#/$defs/source"
+        },
+        "systemPrompt": {
+          "$ref": "#/$defs/source"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source"
+          }
+        },
+        "mcps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mcp"
+          }
+        },
+        "envs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/env"
+          }
+        },
+        "workspace": {
+          "$ref": "#/$defs/workspace"
+        }
+      }
+    },
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "claudecode": {
+          "$ref": "#/$defs/emptyObject"
+        },
+        "codex": {
+          "$ref": "#/$defs/emptyObject"
+        },
+        "pi": {
+          "$ref": "#/$defs/emptyObject"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["claudecode"]
+        },
+        {
+          "required": ["codex"]
+        },
+        {
+          "required": ["pi"]
+        }
+      ]
+    },
+    "llm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "anthropic": {
+          "$ref": "#/$defs/modelProvider"
+        },
+        "openai": {
+          "$ref": "#/$defs/modelProvider"
+        },
+        "openrouter": {
+          "$ref": "#/$defs/modelProvider"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["anthropic"]
+        },
+        {
+          "required": ["openai"]
+        },
+        {
+          "required": ["openrouter"]
+        }
+      ]
+    },
+    "modelProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model"],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "fs": {
+          "$ref": "#/$defs/filesystemSource"
+        },
+        "git": {
+          "$ref": "#/$defs/gitSource"
+        },
+        "http": {
+          "$ref": "#/$defs/httpSource"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["text"]
+        },
+        {
+          "required": ["fs"]
+        },
+        {
+          "required": ["git"]
+        },
+        {
+          "required": ["http"]
+        }
+      ]
+    },
+    "filesystemSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/).+"
+        },
+        "absolutePath": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^/"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["path"]
+        },
+        {
+          "required": ["absolutePath"]
+        }
+      ]
+    },
+    "gitSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(https?|ssh)://"
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "not": {
+        "required": ["ref", "commit"]
+      }
+    },
+    "httpSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        },
+        "archive": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stdio": {
+          "$ref": "#/$defs/stdioMcp"
+        },
+        "http": {
+          "$ref": "#/$defs/httpMcp"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["stdio"]
+        },
+        {
+          "required": ["http"]
+        }
+      ]
+    },
+    "stdioMcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "envs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/env"
+          }
+        }
+      }
+    },
+    "httpMcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/header"
+          }
+        }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hostBindPath": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^/"
+        }
+      }
+    },
+    "emptyObject": {
+      "type": "object",
+      "additionalProperties": false
+    }
+  }
+}

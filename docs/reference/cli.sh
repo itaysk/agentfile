@@ -1,9 +1,9 @@
 af --help # show help & usage
 
-af build \ # build an agent image 
+af build \ # build an agent image
     --file Agentfile.yaml \  # use given Agentfile. Short: -f. Default: Agentfile.yaml
-    --project /path/to/project/dir # use given project dir. Default: current working directory
-    --tag https://myregistry:1234/myagent:latest # tag the created image. Default: Agentfile/metadata.name:Agentfile/metadata.version
+    --project /path/to/project/dir \ # use given project dir. Default: current working directory
+    --tag https://myregistry:1234/myagent:latest \ # tag the created image. Default: Agentfile/metadata.name:Agentfile/metadata.version
 
 af run # alias to af agents run
 

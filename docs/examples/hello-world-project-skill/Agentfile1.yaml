@@ -13,7 +13,7 @@ spec:
       say hi like they do in Hawaii!
   systemPrompt:
     git:
-      url: https://github.com.com/itaysk/agentfile//docs/examples/test-sys-prompt.md
+      url: https://github.com/itaysk/agentfile//docs/examples/test-sys-prompt.md
   skills:
     - fs:
         path: skills/world-greetings

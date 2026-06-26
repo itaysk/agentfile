@@ -74,7 +74,9 @@ spec:
 `apiVersion`, `kind`, `metadata.name`, `spec.harness`, and `spec.llm` are required.  
 `apiVersion` must be `agentfile.build/v1`.  
 `kind` must be `Agent`.  
-`metadata.version` is optional. Its default is `latest`.
+`metadata.name` must be a non-empty string.  
+`metadata.version` is optional. If present, it must be a non-empty string. Its
+default is `latest`.
 
 Example:
 
@@ -88,7 +90,7 @@ spec:
     claudecode: {}
   llm:
     anthropic:
-      model: haiku-4.5
+      model: claude-haiku-4-5
   prompt:
     text: |
       say hi!
@@ -133,9 +135,9 @@ spec:
 
 If `image` is omitted, the default base image is selected automatically:
 
-- `claudecode`: `itaysk/claudecode`
-- `codex`: `itaysk/codex`
-- `pi`: `itaysk/pi`
+- `claudecode`: `itaysk/claudecode:latest`
+- `codex`: `itaysk/codex:latest`
+- `pi`: `itaysk/pi:latest`
 
 The selected base image must contain the selected harness and Agentfile entrypoint.  
 The easiest way to create a custom image is to derive from an existing one.  
@@ -147,13 +149,15 @@ Agentfile does not install tools declared elsewhere. Add tools to the base image
 
 Use `spec.llm` to configure the model provider and model used by the harness.  
 Exactly one provider key must be set.  
-Supported providers are `anthropic`, `openai`, and `openrouter`. Each provider requires `model`.
+Supported providers are `anthropic`, `openai`, and `openrouter`.  
+Each provider requires `model`.
+`model` must be a non-empty string.
 
 ```yaml
 spec:
   llm:
     anthropic:
-      model: haiku-4.5
+      model: claude-haiku-4-5
 ```
 
 ```yaml
@@ -167,7 +171,7 @@ spec:
 spec:
   llm:
     openrouter:
-      model: anthropic/claude-haiku-4.5
+      model: anthropic/claude-haiku-4-5
 ```
 
 Model names are strings. Agentfile does not validate model catalogs.
@@ -227,6 +231,7 @@ The skill name is read from `SKILL.md` front matter when present. Otherwise it i
 Register MCP servers to make external tools available to the harness.  
 `spec.mcps` is a list of server registrations.  
 Each MCP server requires `name`.  
+`name` must be a non-empty string.  
 Exactly one transport must be set.  
 Supported transports are `stdio` and `http`.
 
@@ -259,7 +264,10 @@ stdio:
       value: value
 ```
 
-For `http`, `url` is required. `headers` is optional.
+MCP `envs` entries use the same shape and name rules as `spec.envs`.
+
+For `http`, `url` is required.  
+`headers` is optional.
 
 MCP commands run inside the agent container. Agentfile only registers MCP servers, it does not install MCP server binaries.
 
@@ -275,6 +283,7 @@ spec:
 ```
 
 Each environment entry requires `name` and `value`.  
+`name` must match `[A-Za-z_][A-Za-z0-9_]*`.  
 Runtime environment variables take precedence over `spec.envs`.
 
 ### Workspace
@@ -537,7 +546,7 @@ af agents run [NAME] [--file Agentfile.yaml] [--project DIR] [--in DIR] [--here]
 Examples:
 
 ```bash
-af run hello-world --llm.anthropic.model sonnet-4.5
+af run hello-world --llm.anthropic.model claude-sonnet-4-5
 af run hello-world --prompt.text "say hi"
 af run hello-world --workspace.hostBindPath /tmp/work
 ```

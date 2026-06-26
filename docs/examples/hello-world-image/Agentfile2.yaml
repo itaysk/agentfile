@@ -5,10 +5,10 @@ metadata:
 spec:
   harness:
     claudecode: {}
-    image: myimage:latest
+    image: my-claudecode-base:latest
   llm:
     anthropic:
-      model: haiku-4.5
+      model: claude-haiku-4-5
   prompt:
     text: |
       say hi! if it's before 12AM say good morning.
