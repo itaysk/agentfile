@@ -4,7 +4,7 @@ Agentfile is a declarative way to build agents - driven by YAML files and projec
 It leverages agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
 Agents become standard container images that can run anywhere - locally or on Kubernetes.  
 
-This is a tutorial that walks you through basic concepts of Agentfile. For the full manual see [./man.md](man.md)
+This is a tutorial that walks you through basic concepts of Agentfile. For the full manual see the [Reference Manual](./reference/reference.md).
 
 The basic anatomy of an agent includes:
 1. **Prompt** - instructions for the agent
@@ -198,7 +198,7 @@ spec:
   llm:
     anthropic:
       model: haiku-4.5
-  prompt: 
+  prompt:
     text: |
       say hi using the cowsay command!
 ```
@@ -225,7 +225,7 @@ spec:
   llm:
     anthropic:
       model: haiku-4.5
-  prompt: 
+  prompt:
     text: |
       say hi! if it's before 12AM say good morning.
   mcps:

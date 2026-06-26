@@ -33,7 +33,7 @@ spec:
     fs: # filesystem
       # mutually exclusive:
       path: "" # relative to this file
-      absolutePath: "" # absolute in the agent image filesystem
+      absolutePath: "" # absolute in the build machine filesystem
   systemPrompt:
     # common sources
   skills:

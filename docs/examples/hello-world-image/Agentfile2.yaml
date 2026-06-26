@@ -9,7 +9,10 @@ spec:
   llm:
     anthropic:
       model: haiku-4.5
-  prompt: |
-    say hi! if it's before 12AM say good morning.
+  prompt:
+    text: |
+      say hi! if it's before 12AM say good morning.
   mcps:
-    - command: ["uv", "tool", "run", "mcp-server-time"]
+    - name: time-mcp
+      stdio:
+        command: ["uv", "tool", "run", "mcp-server-time"]
