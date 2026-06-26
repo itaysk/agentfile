@@ -36,9 +36,9 @@ An implementation must do the behavior described here. Nothing else is part of A
 
 These terms are used by the rest of the manual.
 
-- Agentfile: YAML file that declares and describes an agent. Commonly named `Agentfile.yaml`.
-- Project: directory where the Agentfile lives. Used as the build context.
-- Agent: container image produced from an Agentfile.
+- agentfile: YAML file that declares and describes an agent. Commonly named `agentfile.yaml`.
+- Project: directory where the agentfile lives. Used as the build context.
+- Agent: container image produced from an agentfile.
 - Harness: the agent runtime inside the image. Supported harnesses are `claudecode`, `codex`, and `pi`.
 - LLM: the model provider and model used by the harness.
 - Assets: prompt, system prompt, skill, and other markdown content that make up the agent.
@@ -47,7 +47,7 @@ These terms are used by the rest of the manual.
 
 ## Agentfile
 
-An Agentfile declares an agent. It is a YAML document modeled like a Kubernetes resource.
+An agentfile declares an agent. It is a YAML document modeled like a Kubernetes resource.
 
 Field names are case-sensitive.  
 Unknown fields are invalid.
@@ -100,7 +100,7 @@ spec:
 
 ### Harness
 
-Choose a harness to set the runtime that executes the agent. The selected harness controls how the Agentfile spec is translated into runtime-specific instructions, commands, and configuration.
+Choose a harness to set the runtime that executes the agent. The selected harness controls how the agentfile spec is translated into runtime-specific instructions, commands, and configuration.
 
 The [Harness reference](./harness.md) is the normative companion for harness-specific behavior. It defines the runtime files, environment variables, commands, and unsupported combinations an implementation must use for each harness.
 
@@ -343,7 +343,7 @@ fs:
   absolutePath: /opt/agentfile/content.md
 ```
 
-`path` is relative to the Agentfile directory.  
+`path` is relative to the agentfile directory.
 `absolutePath` is an absolute path on the build machine.
 
 ### Git Source
@@ -391,8 +391,8 @@ Non-2xx HTTP responses are invalid.
 
 ## Discovery
 
-Discovery populates Agentfile assets based on project files automatically at build-time.  
-It is applied after reading the Agentfile and before the effective Agentfile is used.
+Discovery populates agentfile assets based on project files automatically at build-time.
+It is applied after reading the agentfile and before the effective agentfile is used.
 
 If `spec.prompt` is absent and `prompt.md` exists, it becomes:
 
@@ -427,15 +427,15 @@ Use the CLI to build, register, list, and run agents. Use `af --help` to show he
 
 ### Build
 
-Build turns the effective Agentfile into a runnable container image. Use `af build` to build an agent image.
+Build turns the effective agentfile into a runnable container image. Use `af build` to build an agent image.
 
 ```bash
-af build [--file Agentfile.yaml] [--project DIR] [--tag TAG]
+af build [--file agentfile.yaml] [--project DIR] [--tag TAG]
 ```
 
 Build steps:
 
-1. Load the effective Agentfile.
+1. Load the effective agentfile.
 2. Resolve all sources.
 3. Select the base image.
 4. Copy assets into the image.
@@ -450,7 +450,7 @@ Build does not require LLM credentials.
 Build does not run the agent.  
 Build must not modify the project directory.
 
-`--file` defaults to `Agentfile.yaml`.  
+`--file` defaults to `agentfile.yaml`.
 `--project` defaults to the current directory.
 
 The default image tag is:
@@ -464,11 +464,11 @@ metadata.name:metadata.version
 Run starts an agent container and streams its output. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME] [--file Agentfile.yaml] [--project DIR] [--in DIR] [--here]
+af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here]
 ```
 
 ```bash
-af run [NAME] [--file Agentfile.yaml] [--project DIR] [--in DIR] [--here]
+af run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here]
 ```
 
 Agent selection:
@@ -491,7 +491,7 @@ The run command requires an effective prompt.
 `--here` sets `spec.workspace.hostBindPath` to the current directory.  
 `--in` and `--here` cannot be used together.
 
-`--file` defaults to `Agentfile.yaml`.  
+`--file` defaults to `agentfile.yaml`.
 `--project` defaults to the current directory.
 
 ### Register
@@ -499,7 +499,7 @@ The run command requires an effective prompt.
 Register an agent project for later use by name.
 
 ```bash
-af agents register [NAME] [--file Agentfile.yaml] [--project DIR]
+af agents register [NAME] [--file agentfile.yaml] [--project DIR]
 ```
 
 If `NAME` is omitted, `metadata.name` is used.
@@ -511,14 +511,14 @@ A registry entry stores:
 ```text
 name
 project directory
-Agentfile path
+agentfile path
 default image tag
 ```
 
 Registering the same name again replaces the previous registration.  
 The registry is not copied into images.
 
-`--file` defaults to `Agentfile.yaml`.  
+`--file` defaults to `agentfile.yaml`.
 `--project` defaults to the current directory.
 
 ### List
@@ -540,7 +540,7 @@ Field overrides are applied after effective file configuration is loaded and bef
 The full run form with field overrides is:
 
 ```bash
-af agents run [NAME] [--file Agentfile.yaml] [--project DIR] [--in DIR] [--here] [field overrides]
+af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [field overrides]
 ```
 
 Examples:

@@ -27,15 +27,15 @@ The basic anatomy of an agent includes:
 
 There can be many more agentic components, such as skills, tools, MCP servers, and context files, but at the bare minimum an agent needs those three.
 
-Let's see how to compose the core agent properties with an Agentfile.
+Let's see how to compose the core agent properties with an agentfile.
 
 ---
 
 ## Hello World
 
-Let's create a basic "Hello World" agent by creating an Agentfile:
+Let's create a basic "Hello World" agent by creating an agentfile:
 
-```yaml source=/docs/examples/hello-world/Agentfile1.yaml
+```yaml source=/docs/examples/hello-world/agentfile1.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -51,7 +51,7 @@ spec:
       say hi!
 ```
 
-We've created an agent! Notice that the Agentfile defines the prompt, model, and harness.
+We've created an agent! Notice that the agentfile defines the prompt, model, and harness.
 The prompt was defined inline; later we'll see other ways to manage prompts and additional markdown-driven assets.
 We selected Anthropic as the LLM provider, and specifically the Claude Haiku model for our agent.  
 We also defined that our agent will be based on the Claude Code harness. Since we want to keep this example simple, we don't set any further harness configuration.
@@ -59,7 +59,7 @@ We also defined that our agent will be based on the Claude Code harness. Since w
 We can build this agent and get a runnable container image:
 
 ```bash
-af build -f Agentfile.yaml
+af build -f agentfile.yaml
 docker images | grep 'hello-world'
 ```
 
@@ -79,28 +79,28 @@ docker push itaysk/hello-world:latest
 kubectl run hello-world --image itaysk/hello-world:latest --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 ```
 
-In the example, the prompt was defined inside the Agentfile. In a real project it is often managed in a dedicated file or a remote location. Let's see how Agentfile helps facilitate this.
+In the example, the prompt was defined inside the agentfile. In a real project it is often managed in a dedicated file or a remote location. Let's see how Agentfile helps facilitate this.
 
 ---
 
 ## Asset Sources
 
 Agent development involves writing a lot of Markdown: prompts, system prompts, context, skills, and related assets that together define an agent.
-So far we've seen our prompt asset defined inside the Agentfile, but assets can be sourced from different places, and Agentfile lets you mix them effortlessly.
+So far we've seen our prompt asset defined inside the agentfile, but assets can be sourced from different places, and Agentfile lets you mix them effortlessly.
 
 Consider the following project structure:
 
 ```
-Agentfile.yaml
+agentfile.yaml
 prompt.md
 skills/
   world-greetings/
     SKILL.md
 ```
 
-And the following Agentfile:
+And the following agentfile:
 
-```yaml source=/docs/examples/hello-world-project-skill/Agentfile1.yaml
+```yaml source=/docs/examples/hello-world-project-skill/agentfile1.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -127,18 +127,18 @@ Also notice we've added a system prompt to our agent, and we source it from a re
 
 When you build the agent, assets are gathered and assembled automatically!
 
-Real-world agents can be Markdown-heavy, with many files that make up the agent. Listing every single file in the Agentfile would be painful, but luckily that's not required.
+Real-world agents can be Markdown-heavy, with many files that make up the agent. Listing every single file in the agentfile would be painful, but luckily that's not required.
 Common prompt, system prompt, and skill assets have file and directory conventions. If you create files in those conventional locations, they are recognized automatically.
 
 ```
-Agentfile.yaml
+agentfile.yaml
 prompt.md
 skills/
   world-greetings/
     SKILL.md
 ```
 
-```yaml source=/docs/examples/hello-world-project-skill/Agentfile2.yaml
+```yaml source=/docs/examples/hello-world-project-skill/agentfile2.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -154,7 +154,7 @@ spec:
 Notice that we've omitted the `skills` field and just let it be discovered under the conventional `skills` directory.  
 Similarly, we've removed the `prompt` field and converted it to a file `prompt.md`.
 
-When you build the agent, auto-discovered assets and explicitly defined assets are merged together to form the complete Agentfile.  
+When you build the agent, auto-discovered assets and explicitly defined assets are merged together to form the complete agentfile.
 
 Asset sources can have different parameters that let you specifically control the source. For example:
 
@@ -183,7 +183,7 @@ While Markdown assets define the core of the agent's behavior, the agent might n
 
 ## Tools
 
-When you build an agent, the Agentfile's `harness` field selects the default base image for the resulting agent image. For example, if you chose `harness: claudecode`, the agent image uses `itaysk/claudecode:latest` as its base image. The default image names are listed in the [Harness reference](./reference/reference.md#harness).
+When you build an agent, the agentfile's `harness` field selects the default base image for the resulting agent image. For example, if you chose `harness: claudecode`, the agent image uses `itaysk/claudecode:latest` as its base image. The default image names are listed in the [Harness reference](./reference/reference.md#harness).
 
 You can extend the default base image to include anything else your agent might need. Create a custom image:
 
@@ -198,7 +198,7 @@ We've added a binary from the web, extracted it, and placed it in the convention
 
 Build and tag this base image as `my-claudecode-base:latest`, then use the `image` field:
 
-```yaml source=/docs/examples/hello-world-image/Agentfile1.yaml
+```yaml source=/docs/examples/hello-world-image/agentfile1.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -216,7 +216,7 @@ spec:
 ```
 
 CLI tools are straightforward for agents to use, but MCP servers require additional setup to register with the agent harness.  
-Install an MCP server in your base image, and declare it in the Agentfile:
+Install an MCP server in your base image, and declare it in the agentfile:
 
 ```Dockerfile source=/docs/examples/hello-world-image/Dockerfile2
 FROM itaysk/claudecode:latest
@@ -225,7 +225,7 @@ RUN apk update && apk add --no-cache uv
 RUN uv tool install mcp-server-time
 ```
 
-```yaml source=/docs/examples/hello-world-image/Agentfile2.yaml
+```yaml source=/docs/examples/hello-world-image/agentfile2.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -246,7 +246,7 @@ spec:
         command: ["uv", "tool", "run", "mcp-server-time"]
 ```
 
-Notice the Dockerfile installed the MCP server in the agent image, and the Agentfile registers it with the harness (Claude Code in this case).
+Notice the Dockerfile installed the MCP server in the agent image, and the agentfile registers it with the harness (Claude Code in this case).
 
 ---
 
@@ -255,7 +255,7 @@ Notice the Dockerfile installed the MCP server in the agent image, and the Agent
 The agent's "workspace" is the special directory `/agent/workspace` inside the agent container. The agent is configured to use it for work-in-progress, state, and artifacts storage.  
 You can bind-mount the workspace to an existing directory. Do this if you want to seed agent's workspace (input), or access the agent's work once it's done (output).
 
-```yaml source=/docs/examples/hello-world-workspace/Agentfile1.yaml
+```yaml source=/docs/examples/hello-world-workspace/agentfile1.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -291,12 +291,12 @@ So far we've built the agent image and ran it as a regular container. While that
 Use the `run` command to shorten long docker commands and register agents for repeatable execution:
 
 ```bash
-af run -f Agentfile.yaml # build & run in one go
-af agents register -f Agentfile.yaml # register hello-world agent
-af run hello-world # run agent by name, no need to locate the Agentfile.
+af run -f agentfile.yaml # build & run in one go
+af agents register -f agentfile.yaml # register hello-world agent
+af run hello-world # run agent by name, no need to locate the agentfile.
 ```
 
-Agentfile fields can be overridden at runtime:
+You can override agentfile fields at runtime:
 
 ```bash
 af run hello-world --llm.anthropic.model "claude-sonnet-4-5" # change model for single run

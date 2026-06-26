@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentfile.build/schemas/agentfile.schema.json",
-  "title": "Agentfile",
+  "title": "agentfile",
   "description": "Schema for agentfile.build/v1 Agent resources.",
   "type": "object",
   "additionalProperties": false,

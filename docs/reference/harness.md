@@ -1,14 +1,16 @@
 # Harness Reference
 
-The [reference manual](./reference.md) defines the Agentfile schema and effective Agentfile algorithm. This file defines how Agentfile features map to each harness's configuration and runtime behavior.
+The [reference manual](./reference.md) defines the agentfile schema and effective agentfile algorithm.
+This file defines how agentfile features map to each harness's configuration and runtime behavior.
 
-A "harness adapter" is the implementation that performs the mapping and setup. Adapter work happens at build time, with access to the Agentfile project. The adapter produces a container image that is fully set up and ready to run. The adapter is not present in the container image, but it creates an entrypoint that applies runtime setup before launching the harness.
+A "harness adapter" is the implementation that performs the mapping and setup.
+Adapter work happens at build time, with access to the Agentfile project. The adapter produces a container image that is fully set up and ready to run. The adapter is not present in the container image, but it creates an entrypoint that applies runtime setup before launching the harness.
 
-If a selected harness cannot represent an effective Agentfile capability listed here, the build must fail with a clear unsupported-combination error. Do not silently drop prompts, skills, MCP servers, environment variables, or model provider settings.
+If a selected harness cannot represent an effective agentfile capability listed here, the build must fail with a clear unsupported-combination error. Do not silently drop prompts, skills, MCP servers, environment variables, or model provider settings.
 
 ## Runtime Layout
 
-The build must stage Agentfile assets under:
+The build must stage agentfile assets under:
 
 ```text
 /agent/agentfile
@@ -18,7 +20,7 @@ The agent process runs with `/agent/workspace` as its working directory. The sta
 
 | Asset | Staged location |
 | --- | --- |
-| Effective Agentfile | `/agent/agentfile/Agentfile.effective.yaml` |
+| Effective agentfile | `/agent/agentfile/agentfile.effective.yaml` |
 | Prompt | `/agent/agentfile/prompt.md` |
 | System Prompt | `/agent/agentfile/system-prompt.md` |
 | Skills | `/agent/agentfile/skills/<skill-name>/...` |
@@ -47,7 +49,7 @@ Generated homes may contain config, copied skills, and other Agentfile-owned run
 
 ## Provider Support
 
-`spec.llm` declares the provider expected by the user. The selected build-time adapter must either implement that provider exactly as listed here or reject the effective Agentfile at build time.
+`spec.llm` declares the provider expected by the user. The selected build-time adapter must either implement that provider exactly as listed here or reject the effective agentfile at build time.
 
 | Provider | Claude Code | Codex | Pi |
 | --- | --- | --- | --- |
@@ -83,7 +85,7 @@ The implementation must pass prompt text as an argument or stdin without shell i
 
 ## Skills
 
-Agentfile skill directories are copied unchanged, including all files below the resolved skill directory.
+Skill directories from the agentfile are copied unchanged, including all files below the resolved skill directory.
 
 | Harness | Mapping |
 | --- | --- |
@@ -154,7 +156,7 @@ http_headers = { Authorization = "Bearer token" }
 
 For a `stdio.command` array, the first item becomes `command` and remaining items become `args`.
 
-HTTP header values from Agentfile are literal values. They are not secret references.
+HTTP header values from the agentfile are literal values. They are not secret references.
 
 ## Harness Commands
 
@@ -183,7 +185,7 @@ claude \
   "$AGENTFILE_PROMPT"
 ```
 
-Use `--bare` only when there are no Agentfile skills and no Agentfile MCP servers. `--bare` disables Claude Code auto-discovered customizations, but it also disables skills and MCP servers.
+Use `--bare` only when there are no agentfile skills and no agentfile MCP servers. `--bare` disables Claude Code auto-discovered customizations, but it also disables skills and MCP servers.
 
 ### Codex
 
@@ -233,7 +235,7 @@ pi \
   "$AGENTFILE_PROMPT"
 ```
 
-`--no-context-files` prevents workspace `AGENTS.md` and `CLAUDE.md` files from changing the packaged agent behavior. Agentfile skills are still loaded through explicit `--skill` flags.
+`--no-context-files` prevents workspace `AGENTS.md` and `CLAUDE.md` files from changing the packaged agent behavior. Skills declared by the agentfile are still loaded through explicit `--skill` flags.
 
 ## Upstream References
 
