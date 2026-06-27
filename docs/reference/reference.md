@@ -464,11 +464,11 @@ metadata.name:metadata.version
 Run starts an agent container and streams its output. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here]
+af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [--env KEY[=VALUE]] [--env-file FILE]
 ```
 
 ```bash
-af run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here]
+af run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [--env KEY[=VALUE]] [--env-file FILE]
 ```
 
 Agent selection:
@@ -493,6 +493,12 @@ The run command requires an effective prompt.
 
 `--file` defaults to `agentfile.yaml`.
 `--project` defaults to the current directory.
+
+`--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
+`--env-file FILE` loads environment variables from an `.env` file.
+
+The following environment variables are passed through from the host environment to the container automatically:
+- Current LLM provider default credentials. As described in [llm section](#llm)
 
 ### Register
 

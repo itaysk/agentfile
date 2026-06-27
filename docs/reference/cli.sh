@@ -21,3 +21,5 @@ af agents run \ # run agent
     --in /path/to/dir \ # alias to --workspace.hostBindPath
     --field value \ # set a spec-level agentfile field to the given string value
     --parent.field value # set a spec-level agentfile nested field to the given string value
+    --env KEY[=VALUE] \ # set an environment variable in the container. if VALUE is omitted, the value is taken from the current environment
+    --env-file FILE # load environment variables from an .env file
