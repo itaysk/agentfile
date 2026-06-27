@@ -139,9 +139,9 @@ If `image` is omitted, the default base image is selected automatically:
 - `codex`: `itaysk/codex:latest`
 - `pi`: `itaysk/pi:latest`
 
-The selected base image must contain the selected harness and Agentfile entrypoint.  
+The selected base image must contain the selected harness executable. Agentfile adds the generated entrypoint during build.
 The easiest way to create a custom image is to derive from an existing one.  
-Images are built from Dockerfiles in [/images](/images).
+Images are built from Dockerfiles in [/harness](/harness).
 
 Agentfile does not install tools declared elsewhere. Add tools to the base image.
 
@@ -581,3 +581,7 @@ docker run --rm -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:late
 ```
 
 When run directly with Docker, the image uses the spec built into the image.
+
+## Security
+
+Agentfile agents are unattended processes and cannot interactively ask for approvals. They also assumed to run in conatiners which provide a natural isolation boundary. Therefore the harness runs with permission and approval gates disabled by default, the agent can read, write, and execute freely inside its container without asking. Additional isolation can be added at deploy-time using container runtime security features.

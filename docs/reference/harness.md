@@ -59,6 +59,16 @@ Generated homes may contain config, copied skills, and other Agentfile-owned run
 
 Unsupported providers may be added later by extending this file. Until then, they are invalid for the listed harness.
 
+## Permissions
+
+Agentfile agents run in containers, and the harness is launched with permission and approval gating disabled by default.
+
+| Harness | Mapping |
+| --- | --- |
+| Claude Code | Use `--dangerously-skip-permissions`, with environment variable `IS_SANDBOX=1` |
+| Codex | Use `--dangerously-bypass-approvals-and-sandbox` |
+| Pi | No action needed. |
+
 ## System Prompt
 
 `spec.systemPrompt` replaces the selected harness's default base prompt when the harness exposes a replacement mechanism. If `spec.systemPrompt` is absent, the harness default applies.
@@ -170,6 +180,7 @@ Runtime environment:
 
 ```text
 HOME=/agent/agentfile/claudecode/home
+IS_SANDBOX=1
 ```
 
 Command:
@@ -179,6 +190,7 @@ claude \
   --print \
   --model "$AGENTFILE_MODEL" \
   --no-session-persistence \
+  --dangerously-skip-permissions \
   [--bare] \
   [--system-prompt-file /agent/agentfile/system-prompt.md] \
   [--mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config] \
@@ -205,7 +217,7 @@ Command:
 ```bash
 codex exec \
   --skip-git-repo-check \
-  --sandbox workspace-write \
+  --dangerously-bypass-approvals-and-sandbox \
   --model "$AGENTFILE_MODEL" \
   "$AGENTFILE_PROMPT"
 ```
