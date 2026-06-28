@@ -26,9 +26,12 @@ An implementation must do the behavior described here. Nothing else is part of A
 - [CLI](#cli)
   - [Build](#build)
   - [Run](#run)
-  - [Register](#register)
-  - [List](#list)
-  - [Field Overrides](#field-overrides)
+    - [Field Overrides](#field-overrides)
+  - [Agents](#agents)
+    - [Register](#register)
+    - [List](#list)
+    - [Remove](#remove)
+  - [Configuration](#configuration)
 - [Direct Docker Use](#direct-docker-use)
 - [Security](#security)
 
@@ -215,7 +218,7 @@ spec:
 
 Skills add reusable instruction bundles to the agent.  
 `spec.skills` is a list of [source objects](#sources). Each source must resolve to one skill directory.  
-A skill directory must contain `SKILL.md`, and the skill name is the `name` field that YAML's front matter.
+A skill directory must contain `SKILL.md`, and the skill name is the `name` field in its YAML front matter.
 
 ```yaml
 spec:
@@ -464,11 +467,7 @@ metadata.name:metadata.version
 Run starts an agent container and streams its output. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [--env KEY[=VALUE]] [--env-file FILE]
-```
-
-```bash
-af run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [--env KEY[=VALUE]] [--env-file FILE]
+af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]
 ```
 
 Agent selection:
@@ -500,56 +499,17 @@ The run command requires an effective prompt.
 The following environment variables are passed through from the host environment to the container automatically:
 - Current LLM provider default credentials. As described in [llm section](#llm)
 
-### Register
-
-Register an agent project for later use by name.
+When the run command receives piped input on stdin, that input is forwarded to the agent, so you can stream data to it:
 
 ```bash
-af agents register [NAME] [--file agentfile.yaml] [--project DIR]
+tail -200 app.log | af run log-triage
 ```
 
-If `NAME` is omitted, `metadata.name` is used.
-
-The registry maps user-local agent names to Agentfile projects.
-
-A registry entry stores:
-
-```text
-name
-project directory
-agentfile path
-default image tag
-```
-
-Registering the same name again replaces the previous registration.  
-The registry is not copied into images.
-
-`--file` defaults to `agentfile.yaml`.
-`--project` defaults to the current directory.
-
-### List
-
-List registered agents.
-
-```bash
-af agents list
-```
-
-### Field Overrides
+#### Field Overrides
 
 Field overrides change scalar spec fields for one run.  
-Runtime overrides are CLI flags named after `spec` field paths.  
-Do not include the leading `spec`.
-
-Field overrides are applied after effective file configuration is loaded and before the run starts. They replace matching effective file values.
-
-The full run form with field overrides is:
-
-```bash
-af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [field overrides]
-```
-
-Examples:
+Field overrides are applied after effective file configuration is loaded and before the run starts. They replace matching effective file values.  
+Field overrides are only supported by `af run`. When run directly with Docker, the image uses the spec built into the image.
 
 ```bash
 af run hello-world --llm.anthropic.model claude-sonnet-4-5
@@ -557,14 +517,62 @@ af run hello-world --prompt.text "say hi"
 af run hello-world --workspace.hostBindPath /tmp/work
 ```
 
-`--prompt TEXT` is an alias for `--prompt.text TEXT`.  
-`--in PATH` is an alias for `--workspace.hostBindPath PATH`.  
-Setting `--prompt.text` replaces the whole prompt source with a text source.
+Fields are referenced by their `spec` field path, with the `spec` prefix omitted.
 
-Only scalar string fields can be overridden.  
 Overrides cannot append list items.  
-Field overrides are only supported by `af run`.  
-When run directly with Docker, the image uses the spec built into the image.
+Overrides can set fields that weren't present in the agentfile (as long as the field is valid).  
+Field overrides can override asset sources, in which case the `text` source is used.
+
+### Agents
+
+The agent registry allows easy discovery and execution of agents. It maps user-local agent names to Agentfile projects.
+
+The agent registry is stored in the [agentfile configuration directory](#configuration) under `/registry.json`.
+
+A registry entry stores:
+
+1. name
+2. project directory
+3. agentfile path
+4. default image tag
+
+#### Register
+
+Register an agent for later use by name.
+
+```bash
+af agents register [NAME] [--file agentfile.yaml] [--project DIR]
+```
+
+If `NAME` is omitted, `metadata.name` is used.
+
+Registering the same name again replaces the previous registration.  
+
+`--file` defaults to `agentfile.yaml`.
+`--project` defaults to the current directory.
+
+#### List
+
+List registered agents.
+
+```bash
+af agents list
+```
+
+#### Remove
+
+Remove a registered agent.
+
+```bash
+af agents remove [NAME]
+```
+
+### Configuration
+
+Agentfile CLI stores state and configuration in a system-wide location determined in the following order:
+
+1. `$XDG_CONFIG_HOME/agentfile`
+2. `~/.config/agentfile`
 
 ## Direct Docker Use
 
