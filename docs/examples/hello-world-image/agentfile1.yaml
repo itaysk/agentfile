@@ -1,11 +1,11 @@
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
-  name: hello-world
+  name: hello-world-cowsay
 spec:
   harness:
     claudecode: {}
-    image: my-claudecode-base:latest
+    image: cc-cowsay:latest
   llm:
     anthropic:
       model: claude-haiku-4-5

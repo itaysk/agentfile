@@ -141,7 +141,7 @@ If `image` is omitted, the default base image is selected automatically:
 
 The selected base image must contain the selected harness executable. Agentfile adds the generated entrypoint during build.
 The easiest way to create a custom image is to derive from an existing one.  
-Images are built from Dockerfiles in [/harness](/harness).
+Images are built from Dockerfiles in [/images](/images).
 
 Agentfile does not install tools declared elsewhere. Add tools to the base image.
 

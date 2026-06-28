@@ -104,7 +104,7 @@ And the following agentfile:
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
-  name: hello-world
+  name: hello-world-global
 spec:
   harness:
     claudecode: {}
@@ -142,7 +142,7 @@ skills/
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
-  name: hello-world
+  name: hello-world-global
 spec:
   harness:
     claudecode: {}
@@ -202,11 +202,11 @@ Build and tag this base image as `my-claudecode-base:latest`, then use the `imag
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
-  name: hello-world
+  name: hello-world-cowsay
 spec:
   harness:
     claudecode: {}
-    image: my-claudecode-base:latest
+    image: cc-cowsay:latest
   llm:
     anthropic:
       model: claude-haiku-4-5
@@ -229,17 +229,17 @@ RUN uv tool install mcp-server-time
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
-  name: hello-world
+  name: hello-world-time
 spec:
   harness:
     claudecode: {}
-    image: my-claudecode-base:latest
+    image: cc-time:latest
   llm:
     anthropic:
       model: claude-haiku-4-5
   prompt:
     text: |
-      say hi! if it's before 12AM say good morning.
+      say hi! if it's AM time, say good morning.
   mcps:
     - name: time-mcp
       stdio:
@@ -259,7 +259,7 @@ You can bind-mount the workspace to an existing directory. Do this if you want t
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
-  name: hello-world
+  name: hello-world-zip
 spec:
   harness:
     claudecode: {}

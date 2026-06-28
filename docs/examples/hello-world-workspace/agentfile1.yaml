@@ -1,7 +1,7 @@
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
-  name: hello-world
+  name: hello-world-zip
 spec:
   harness:
     claudecode: {}
