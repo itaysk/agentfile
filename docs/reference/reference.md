@@ -214,7 +214,8 @@ spec:
 ### Skills
 
 Skills add reusable instruction bundles to the agent.  
-`spec.skills` is a list of [source objects](#sources). Each source must resolve to one skill directory. A skill directory must contain `SKILL.md`.
+`spec.skills` is a list of [source objects](#sources). Each source must resolve to one skill directory.  
+A skill directory must contain `SKILL.md`, and the skill name is the `name` field that YAML's front matter.
 
 ```yaml
 spec:
@@ -224,7 +225,6 @@ spec:
 ```
 
 Duplicate skill names are invalid.  
-The skill name is read from `SKILL.md` front matter when present. Otherwise it is the skill directory name.
 
 ### MCP Servers
 

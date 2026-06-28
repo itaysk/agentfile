@@ -103,7 +103,7 @@ Skill directories from the agentfile are copied unchanged, including all files b
 | Codex | Install each skill at `/agent/agentfile/codex/home/.agents/skills/<skill-name>/`. |
 | Pi | Use `--skill /agent/agentfile/skills/<skill-name>` once per skill. |
 
-The `<skill-name>` directory is the duplicate-checked skill name from the reference manual: `SKILL.md` front matter `name` when present, otherwise the source directory name.
+The `<skill-name>` directory is the `name` field in `SKILL.md` front matter.
 
 ## MCP Servers
 
