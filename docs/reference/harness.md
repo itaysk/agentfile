@@ -197,7 +197,9 @@ claude \
   "$AGENTFILE_PROMPT"
 ```
 
-Use `--bare` only when there are no agentfile skills and no agentfile MCP servers. `--bare` disables Claude Code auto-discovered customizations, but it also disables skills and MCP servers.
+Use `--bare` when there are no agentfile skills.  
+Bare mode minimizes claude's footprint and startup time by disabling auto-discovery for hooks, skills, plugins, MCP servers, memory, and `CLAUDE.md`. It also automatically sets `CLAUDE_CODE_SIMPLE=1` which simplifies the system prompt.  
+Flags passed explicitly still apply, and all of the necessary features can be configured with explicit flags except skills.
 
 ### Codex
 
