@@ -16,7 +16,6 @@ type Registry struct {
 
 type Entry struct {
 	Name            string `json:"name"`
-	ProjectDir      string `json:"projectDir"`
 	AgentfilePath   string `json:"agentfilePath"`
 	DefaultImageTag string `json:"defaultImageTag"`
 }

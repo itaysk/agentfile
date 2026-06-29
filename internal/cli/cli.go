@@ -48,14 +48,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 func runBuild(args []string, stdout, stderr io.Writer) error {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af build [--file agentfile.yaml] [--project DIR] [--tag TAG]")
+		fmt.Fprintln(stdout, "usage: af build [--file agentfile.yaml] [--tag TAG]")
 		return nil
 	}
 	options := buildFlags{file: agentfile.DefaultFileName}
 	if err := parseBuildFlags(args, &options); err != nil {
 		return err
 	}
-	project, err := agentfile.Load(options.project, options.file)
+	project, err := agentfile.Load(options.file)
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func runAgents(args []string, stdout, stderr io.Writer) int {
 
 func runRun(args []string, stdout, stderr io.Writer) int {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME] [--file agentfile.yaml] [--project DIR] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]")
+		fmt.Fprintln(stdout, "usage: af run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]")
 		return 0
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
@@ -135,14 +135,14 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 
 func runRegister(args []string, stdout io.Writer) error {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af agents register [NAME] [--file agentfile.yaml] [--project DIR]")
+		fmt.Fprintln(stdout, "usage: af agents register [NAME] [--file agentfile.yaml]")
 		return nil
 	}
 	options := registerFlags{file: agentfile.DefaultFileName}
 	if err := parseRegisterFlags(args, &options); err != nil {
 		return err
 	}
-	project, err := agentfile.Load(options.project, options.file)
+	project, err := agentfile.Load(options.file)
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,6 @@ func runRegister(args []string, stdout io.Writer) error {
 	}
 	registry.Put(config.Entry{
 		Name:            name,
-		ProjectDir:      project.ProjectDir,
 		AgentfilePath:   project.AgentfilePath,
 		DefaultImageTag: project.DefaultImageTag(),
 	})
@@ -180,9 +179,9 @@ func runList(args []string, stdout io.Writer) error {
 		return err
 	}
 	writer := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "NAME\tIMAGE\tPROJECT\tAGENTFILE")
+	fmt.Fprintln(writer, "NAME\tIMAGE\tAGENTFILE")
 	for _, entry := range registry.SortedEntries() {
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", entry.Name, entry.DefaultImageTag, entry.ProjectDir, entry.AgentfilePath)
+		fmt.Fprintf(writer, "%s\t%s\t%s\n", entry.Name, entry.DefaultImageTag, entry.AgentfilePath)
 	}
 	return writer.Flush()
 }
@@ -210,8 +209,8 @@ func runRemove(args []string, stdout io.Writer) error {
 }
 
 func loadRunSelection(options runFlags) (*agentfile.Project, string, error) {
-	if options.fileSet || options.projectSet {
-		project, err := agentfile.Load(options.project, options.file)
+	if options.fileSet {
+		project, err := agentfile.Load(options.file)
 		return project, "", err
 	}
 	if options.name != "" {
@@ -223,10 +222,10 @@ func loadRunSelection(options runFlags) (*agentfile.Project, string, error) {
 		if !ok {
 			return nil, "", fmt.Errorf("agent %q is not registered", options.name)
 		}
-		project, err := agentfile.Load(entry.ProjectDir, entry.AgentfilePath)
+		project, err := agentfile.Load(entry.AgentfilePath)
 		return project, entry.DefaultImageTag, err
 	}
-	project, err := agentfile.Load("", agentfile.DefaultFileName)
+	project, err := agentfile.Load(agentfile.DefaultFileName)
 	return project, "", err
 }
 
@@ -274,27 +273,23 @@ func wantsHelp(args []string) bool {
 }
 
 type buildFlags struct {
-	file    string
-	project string
-	tag     string
+	file string
+	tag  string
 }
 
 type registerFlags struct {
-	file    string
-	project string
-	name    string
+	file string
+	name string
 }
 
 type runFlags struct {
-	name       string
-	file       string
-	project    string
-	fileSet    bool
-	projectSet bool
-	env        map[string]string
-	envFiles   []string
-	workspace  string
-	mutations  []fieldMutation
+	name      string
+	file      string
+	fileSet   bool
+	env       map[string]string
+	envFiles  []string
+	workspace string
+	mutations []fieldMutation
 }
 
 type fieldMutation struct {
@@ -341,13 +336,6 @@ func parseBuildFlags(args []string, options *buildFlags) error {
 			options.file, i = value, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--project", ""); matched {
-			if err != nil {
-				return err
-			}
-			options.project, i = value, next
-			continue
-		}
 		if value, next, matched, err := matchStrFlag(args, i, arg, "--tag", ""); matched {
 			if err != nil {
 				return err
@@ -373,13 +361,6 @@ func parseRegisterFlags(args []string, options *registerFlags) error {
 			options.file, i = value, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--project", ""); matched {
-			if err != nil {
-				return err
-			}
-			options.project, i = value, next
-			continue
-		}
 		if strings.HasPrefix(arg, "-") {
 			return fmt.Errorf("unknown register argument %q", arg)
 		}
@@ -399,13 +380,6 @@ func parseRunFlags(args []string, options *runFlags) error {
 				return err
 			}
 			options.file, options.fileSet, i = value, true, next
-			continue
-		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--project", ""); matched {
-			if err != nil {
-				return err
-			}
-			options.project, options.projectSet, i = value, true, next
 			continue
 		}
 		if value, next, matched, err := matchStrFlag(args, i, arg, "--workspace", ""); matched {

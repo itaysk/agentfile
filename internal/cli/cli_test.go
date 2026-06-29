@@ -99,7 +99,7 @@ spec:
 
 	var registerOut bytes.Buffer
 	var registerErr bytes.Buffer
-	code := Run([]string{"agents", "register", "alias", "--project", projectDir}, &registerOut, &registerErr)
+	code := Run([]string{"agents", "register", "alias", "-f", filepath.Join(projectDir, "agentfile.yaml")}, &registerOut, &registerErr)
 	if code != 0 {
 		t.Fatalf("register exit code = %d, stderr = %q", code, registerErr.String())
 	}

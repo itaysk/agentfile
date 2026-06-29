@@ -423,7 +423,7 @@ Use the CLI to build, register, list, and run agents. Use `af --help` to show he
 Build turns the effective agentfile into a runnable container image. Use `af build` to build an agent image.
 
 ```bash
-af build [--file agentfile.yaml] [--project DIR] [--tag TAG]
+af build [--file agentfile.yaml] [--tag TAG]
 ```
 
 Build steps:
@@ -443,8 +443,7 @@ Build does not require LLM credentials.
 Build does not run the agent.  
 Build must not modify the project directory.
 
-`--file` defaults to `agentfile.yaml`.
-`--project` defaults to the current directory.
+`--file` defaults to `agentfile.yaml` in the current directory. Relative paths are resolved from the current directory; absolute paths are used as-is.
 
 The default image tag is:
 
@@ -457,14 +456,14 @@ metadata.name:metadata.version
 Run starts an agent container and streams its output. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]
+af agents run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]
 ```
 
 Agent selection:
 
-1. If `--file` or `--project` is set, load that project.
+1. If `--file` is set, load that agentfile.
 2. Otherwise, if `NAME` is set, load the registered agent named `NAME`.
-3. Otherwise, load the current project.
+3. Otherwise, load `agentfile.yaml` from the current directory.
 
 Run steps:
 
@@ -479,8 +478,7 @@ The run command requires an effective prompt.
 `--workspace PATH` binds `PATH` to `/agent/workspace`. `PATH` must be an existing directory. Relative paths are resolved from the current working directory.  
 `--ws PATH` is an alias for `--workspace PATH`.
 
-`--file` defaults to `agentfile.yaml`.
-`--project` defaults to the current directory.
+`--file` defaults to `agentfile.yaml` in the current directory. Relative paths are resolved from the current directory; absolute paths are used as-is.
 
 `--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
 `--env-file FILE` loads environment variables from an `.env` file.
@@ -524,7 +522,6 @@ The registry JSON uses a wrapped object shape:
   "agents": {
     "hello": {
       "name": "hello",
-      "projectDir": "/path/to/project",
       "agentfilePath": "/path/to/project/agentfile.yaml",
       "defaultImageTag": "hello:latest"
     }
@@ -535,24 +532,22 @@ The registry JSON uses a wrapped object shape:
 A registry entry stores:
 
 1. name
-2. project directory
-3. agentfile path
-4. default image tag
+2. agentfile path
+3. default image tag
 
 #### Register
 
 Register an agent for later use by name.
 
 ```bash
-af agents register [NAME] [--file agentfile.yaml] [--project DIR]
+af agents register [NAME] [--file agentfile.yaml]
 ```
 
 If `NAME` is omitted, `metadata.name` is used.
 
 Registering the same name again replaces the previous registration.  
 
-`--file` defaults to `agentfile.yaml`.
-`--project` defaults to the current directory.
+`--file` defaults to `agentfile.yaml` in the current directory. Relative paths are resolved from the current directory; absolute paths are used as-is.
 
 #### List
 

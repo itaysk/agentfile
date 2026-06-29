@@ -18,28 +18,8 @@ type Project struct {
 	AgentfilePath string
 }
 
-func Load(projectDir, fileName string) (*Project, error) {
-	if projectDir == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-		projectDir = cwd
-	}
-	if fileName == "" {
-		fileName = DefaultFileName
-	}
-
-	absProjectDir, err := filepath.Abs(projectDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve project directory: %w", err)
-	}
-
-	agentfilePath := fileName
-	if !filepath.IsAbs(agentfilePath) {
-		agentfilePath = filepath.Join(absProjectDir, fileName)
-	}
-	agentfilePath, err = filepath.Abs(agentfilePath)
+func Load(fileName string) (*Project, error) {
+	agentfilePath, err := filepath.Abs(fileName)
 	if err != nil {
 		return nil, fmt.Errorf("resolve agentfile path: %w", err)
 	}

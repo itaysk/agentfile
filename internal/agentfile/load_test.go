@@ -29,7 +29,7 @@ description: Test skill
 body
 `)
 
-	project, err := Load(projectDir, "agentfile.yaml")
+	project, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -72,6 +72,39 @@ body
 	}
 }
 
+func TestLoadResolvesRelativeFileFromWorkingDirectory(t *testing.T) {
+	projectDir := t.TempDir()
+	writeTestFile(t, filepath.Join(projectDir, "agentfile.yaml"), `apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello
+spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: claude-haiku-4-5
+`)
+
+	t.Chdir(projectDir)
+
+	project, err := Load("agentfile.yaml")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	got, err := filepath.EvalSymlinks(project.AgentfilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(projectDir, "agentfile.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("agentfile path = %q, want %q", got, want)
+	}
+}
+
 func TestLoadSkipsExplicitConventionalSkillsAndSortsDiscoveredSkills(t *testing.T) {
 	projectDir := t.TempDir()
 	writeTestFile(t, filepath.Join(projectDir, "agentfile.yaml"), `apiVersion: agentfile.build/v1
@@ -92,7 +125,7 @@ spec:
 	writeTestFile(t, filepath.Join(projectDir, "skills", "greet", "SKILL.md"), "---\nname: greet\n---\n")
 	writeTestFile(t, filepath.Join(projectDir, "skills", "alpha", "SKILL.md"), "---\nname: alpha\n---\n")
 
-	project, err := Load(projectDir, "agentfile.yaml")
+	project, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -118,7 +151,7 @@ spec:
   madeUp: true
 `)
 
-	_, err := Load(projectDir, "agentfile.yaml")
+	_, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
 	if err == nil {
 		t.Fatal("Load succeeded, want unknown field error")
 	}
@@ -142,7 +175,7 @@ spec:
       model: claude-haiku-4-5
 `)
 
-	_, err := Load(projectDir, "agentfile.yaml")
+	_, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
 	if err == nil {
 		t.Fatal("Load succeeded, want empty version error")
 	}
@@ -167,7 +200,7 @@ spec:
     - name: LOG_LEVEL
 `)
 
-	_, err := Load(projectDir, "agentfile.yaml")
+	_, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
 	if err == nil {
 		t.Fatal("Load succeeded, want missing env value error")
 	}
@@ -190,7 +223,7 @@ spec:
       model: claude-haiku-4-5
 `)
 
-	_, err := Load(projectDir, "agentfile.yaml")
+	_, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
 	if err == nil {
 		t.Fatal("Load succeeded, want unsupported combination error")
 	}
@@ -220,7 +253,7 @@ spec:
         url: https://example.com/mcp
 `)
 
-	_, err := Load(projectDir, "agentfile.yaml")
+	_, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
 	if err == nil {
 		t.Fatal("Load succeeded, want duplicate MCP name error")
 	}
@@ -250,7 +283,7 @@ spec:
 	writeTestFile(t, filepath.Join(projectDir, "skills", "one", "SKILL.md"), "---\nname: same\n---\n")
 	writeTestFile(t, filepath.Join(projectDir, "skills", "two", "SKILL.md"), "---\nname: same\n---\n")
 
-	project, err := Load(projectDir, "agentfile.yaml")
+	project, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
