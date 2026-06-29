@@ -100,7 +100,7 @@ func runAgents(args []string, stdout, stderr io.Writer) int {
 
 func runRun(args []string, stdout, stderr io.Writer) int {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]")
+		fmt.Fprintln(stdout, "usage: af run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]")
 		return 0
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
@@ -117,6 +117,10 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "af:", err)
 		return 1
 	}
+	runStderr := io.Discard
+	if options.debug {
+		runStderr = stderr
+	}
 	exitCode, err := runner.Run(context.Background(), runner.Options{
 		Project:   project,
 		Tag:       tag,
@@ -124,7 +128,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		EnvFiles:  options.envFiles,
 		Workspace: options.workspace,
 		Stdout:    stdout,
-		Stderr:    stderr,
+		Stderr:    runStderr,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "af:", err)
@@ -289,6 +293,7 @@ type runFlags struct {
 	env       map[string]string
 	envFiles  []string
 	workspace string
+	debug     bool
 	mutations []fieldMutation
 }
 
@@ -446,6 +451,8 @@ func parseRunFlags(args []string, options *runFlags) error {
 			i = next
 		case strings.HasPrefix(arg, "--env-file="):
 			options.envFiles = append(options.envFiles, strings.TrimPrefix(arg, "--env-file="))
+		case arg == "--debug":
+			options.debug = true
 		case strings.HasPrefix(arg, "--") && strings.Contains(arg, "."):
 			path, value, next, err := parseOverrideArg(args, i)
 			if err != nil {

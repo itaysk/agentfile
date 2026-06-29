@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -120,6 +121,45 @@ func TestRunMountsWorkspace(t *testing.T) {
 	}
 }
 
+func TestRunRoutesOutput(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		captureStderr bool
+		wantStderr    []string
+	}{
+		{name: "discarded stderr"},
+		{name: "captured stderr", captureStderr: true, wantStderr: []string{"build stdout", "build stderr", "agent stderr"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dockerPath, _ := installFakeDocker(t)
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			var runStderr io.Writer = io.Discard
+			if tt.captureStderr {
+				runStderr = &stderr
+			}
+
+			code, err := Run(context.Background(), Options{
+				Project:      runnerTestProject(t),
+				DockerBinary: dockerPath,
+				Stdout:       &stdout,
+				Stderr:       runStderr,
+			})
+			if err != nil || code != 0 {
+				t.Fatalf("Run = (%d, %v), want success", code, err)
+			}
+			if stdout.String() != "agent stdout\n" {
+				t.Fatalf("stdout = %q, want agent stdout only", stdout.String())
+			}
+			for _, want := range tt.wantStderr {
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+				}
+			}
+		})
+	}
+}
+
 func TestRunRejectsInvalidWorkspaceHostPathBeforeDocker(t *testing.T) {
 	dockerPath, logPath := installFakeDocker(t)
 	filePath := filepath.Join(t.TempDir(), "file")
@@ -150,8 +190,16 @@ func installFakeDocker(t *testing.T) (string, string) {
 	dockerPath := filepath.Join(binDir, "docker")
 	writeRunnerTestFile(t, dockerPath, `#!/bin/sh
 printf '%s\n' "$*" >> "$DOCKER_ARGS_LOG"
+if [ "$1" = "build" ]; then
+  echo "build stdout"
+  echo "build stderr" >&2
+fi
 if [ "$1" = "run" ] && [ -n "${DOCKER_STDIN_LOG:-}" ]; then
   cat > "$DOCKER_STDIN_LOG"
+fi
+if [ "$1" = "run" ]; then
+  echo "agent stdout"
+  echo "agent stderr" >&2
 fi
 exit 0
 `)

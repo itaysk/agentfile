@@ -453,10 +453,10 @@ metadata.name:metadata.version
 
 ### Run
 
-Run starts an agent container and streams its output. `af run` is an alias for `af agents run`.
+Run starts an agent container and prints the agent stdout. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]
+af agents run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]
 ```
 
 Agent selection:
@@ -471,7 +471,7 @@ Run steps:
 2. Bind the workspace if requested.
 3. Pass runtime environment variables.
 4. Start the container.
-5. Stream stdout and stderr.
+5. Print the agent stdout.
 6. Exit with the container exit code.
 
 The run command requires an effective prompt.  
@@ -482,6 +482,7 @@ The run command requires an effective prompt.
 
 `--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
 `--env-file FILE` loads environment variables from an `.env` file.
+`--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result.
 
 The following environment variables are passed through from the host environment to the container automatically:
 - Current LLM provider default credentials. As described in [llm section](#llm)

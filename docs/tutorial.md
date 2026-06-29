@@ -272,7 +272,7 @@ spec:
       model: claude-haiku-4-5
   prompt:
     text: |
-      get a name to greet from the file @name.
+      get a name to greet from the file `name`.
       if the file is missing, abort.
       write a greeting to this name.
       write the result into a zip file called `greeting.zip`.

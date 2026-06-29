@@ -77,6 +77,16 @@ func TestParseRunFlagsWorkspaceShorthands(t *testing.T) {
 	}
 }
 
+func TestParseRunFlagsDebug(t *testing.T) {
+	options := runFlags{env: map[string]string{}}
+	if err := parseRunFlags([]string{"--debug"}, &options); err != nil {
+		t.Fatalf("parseRunFlags returned error: %v", err)
+	}
+	if !options.debug {
+		t.Fatal("debug = false, want true")
+	}
+}
+
 func TestRegisterAndListUseConfigRegistry(t *testing.T) {
 	// Isolate os.UserConfigDir() across platforms: Linux honors XDG_CONFIG_HOME,
 	// macOS/Windows derive from HOME/AppData.

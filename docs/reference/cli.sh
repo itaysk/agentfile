@@ -15,7 +15,8 @@ af agents run \ # run agent
     --prompt "say hi" \ # replace spec.prompt with an inline text source for this run
     --parent.field value # set a spec-level agentfile nested field to the given string value
     --env KEY[=VALUE] \ # set an environment variable in the container. if VALUE is omitted, the value is taken from the current environment
-    --env-file FILE # load environment variables from an .env file
+    --env-file FILE \ # load environment variables from an .env file
+    --debug # print build progress and agent stderr
 
 af agents register \ # register and agent
     myagent \ # name of agent
