@@ -13,7 +13,9 @@ af agents run \ # run agent
     myagent \ # name of registered agent
     --file agentfile.yaml \  # build agent first from given agentfile. Short: -f. Default: agentfile.yaml
     --project /path/to/project/dir \ # build agent first from given project dir. Default: current working directory
-    --in /path/to/dir \ # alias to --workspace.hostBindPath
+    --in /path/to/dir \ # bind an existing directory to /agent/workspace
+    --here \ # bind the current directory to /agent/workspace
+    --prompt "say hi" \ # replace spec.prompt with an inline text source for this run
     --parent.field value # set a spec-level agentfile nested field to the given string value
     --env KEY[=VALUE] \ # set an environment variable in the container. if VALUE is omitted, the value is taken from the current environment
     --env-file FILE # load environment variables from an .env file

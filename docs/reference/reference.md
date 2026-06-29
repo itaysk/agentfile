@@ -309,7 +309,7 @@ spec:
     hostBindPath: /tmp/work
 ```
 
-`hostBindPath` must be an absolute host path.
+`hostBindPath` must be an absolute host directory that already exists when `af run` starts. Agentfile does not create it.
 
 When using `docker run` directly, you still need to mount the workspace yourself.
 
@@ -366,6 +366,7 @@ The separator is the last `//` in the URL.
 
 Exactly one of `ref` or `commit` may be set.  
 If neither is set, the remote default branch is used at build time.
+Sources without `commit` use shallow clones. `commit` sources first try a shallow clone plus a shallow fetch of the requested commit, then fall back to a full clone if the remote does not support fetching by commit.
 
 ### HTTP Source
 
@@ -387,7 +388,7 @@ http:
 
 If `archive` is `false`, the response body is used as one file.  
 If `archive` is `true`, the response body is extracted.  
-Supported archive formats are `zip`, `tar`, `tar.gz`, and `tgz`.
+Supported archive formats are `zip`, `tar`, `tar.gz`, and `tgz`. Archive format is detected from the URL suffix first, then by common magic bytes such as zip and gzip when the URL does not include a useful extension.
 
 HTTP redirects are followed.  
 Non-2xx HTTP responses are invalid.
@@ -397,31 +398,28 @@ Non-2xx HTTP responses are invalid.
 Discovery populates agentfile assets based on project files automatically at build-time.
 It is applied after reading the agentfile and before the effective agentfile is used.
 
-If `spec.prompt` is absent and `prompt.md` exists, it becomes:
+Singular assets are discovered only when their `spec` field is absent. List assets append discovered entries after explicit entries.  
+Each discovered asset is represented as an `fs` source in the effective agentfile YAML.
+
+`prompt.md` discovered as `spec.prompt`.
+`system-prompt.md` is discovered as `spec.systemPrompt`.
 
 ```yaml
-prompt:
-  fs:
-    path: prompt.md
+spec:
+  prompt:
+    fs:
+      path: prompt.md
 ```
 
-If `spec.systemPrompt` is absent and `system-prompt.md` exists, it becomes:
+`skills/<name>` directories are discovered as `spec.skills[name]` and sorted in path order.
 
 ```yaml
-systemPrompt:
-  fs:
-    path: system-prompt.md
+spec:
+  skills:
+    - fs:
+        path: skills/name
 ```
 
-If `skills/` exists, each immediate child directory containing `SKILL.md` is added to `spec.skills`.
-
-```yaml
-skills:
-  - fs:
-      path: skills/myskill
-```
-
-Explicit skills come before discovered skills.  
 No recursive skill discovery is performed below `skills/*`.
 
 ## CLI
@@ -486,7 +484,7 @@ Run steps:
 6. Exit with the container exit code.
 
 The run command requires an effective prompt.  
-`--in PATH` sets `spec.workspace.hostBindPath`.  
+`--in PATH` sets `spec.workspace.hostBindPath`. `PATH` must be an existing directory.  
 `--here` sets `spec.workspace.hostBindPath` to the current directory.  
 `--in` and `--here` cannot be used together.
 
@@ -507,27 +505,42 @@ tail -200 app.log | af run log-triage
 
 #### Field Overrides
 
-Field overrides change scalar spec fields for one run.  
+Field overrides change scalar `spec` fields for one run.  
+Field overrides can override complete asset sources, in which case the `text` source is used in the effective agentfile (e.g `--prompt="example"` becomes `prompt: { text: "example" }`).  
 Field overrides are applied after effective file configuration is loaded and before the run starts. They replace matching effective file values.  
+After overrides are applied, the effective agentfile is validated again.  
+Field overrides can set fields that weren't present in the agentfile, as long as the field path is valid and the resulting agentfile is valid.  
+Overrides cannot set fields inside list items, append list items, or replace a list as a whole.  
+Fields are referenced by their `spec` field path, with the `spec` prefix omitted. Use `--field.path value` or `--field.path=value`.  
 Field overrides are only supported by `af run`. When run directly with Docker, the image uses the spec built into the image.
 
 ```bash
 af run hello-world --llm.anthropic.model claude-sonnet-4-5
+af run hello-world --prompt "say hi"
 af run hello-world --prompt.text "say hi"
 af run hello-world --workspace.hostBindPath /tmp/work
 ```
-
-Fields are referenced by their `spec` field path, with the `spec` prefix omitted.
-
-Overrides cannot append list items.  
-Overrides can set fields that weren't present in the agentfile (as long as the field is valid).  
-Field overrides can override asset sources, in which case the `text` source is used.
 
 ### Agents
 
 The agent registry allows easy discovery and execution of agents. It maps user-local agent names to Agentfile projects.
 
 The agent registry is stored in the [agentfile configuration directory](#configuration) under `/registry.json`.
+
+The registry JSON uses a wrapped object shape:
+
+```json
+{
+  "agents": {
+    "hello": {
+      "name": "hello",
+      "projectDir": "/path/to/project",
+      "agentfilePath": "/path/to/project/agentfile.yaml",
+      "defaultImageTag": "hello:latest"
+    }
+  }
+}
+```
 
 A registry entry stores:
 
