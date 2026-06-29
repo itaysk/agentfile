@@ -21,7 +21,8 @@ docker push itaysk/my-agent:latest
 kubectl run my-agent --image=itaysk/my-agent:latest
 ```
 
-This is a tutorial that walks you through basic concepts of Agentfile. For the full manual see the [Reference Manual](./reference/reference.md).
+This is a tutorial that walks you through basic concepts of Agentfile. For the full manual see the [Reference Manual](./reference/reference.md).  
+If you want to follow along, make sure you [install Agentfile](./installation.md).
 
 The basic anatomy of an agent includes:
 1. **Prompt** - instructions for the agent

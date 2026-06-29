@@ -15,9 +15,16 @@ import (
 	"github.com/itaysk/agentfile/internal/runner"
 )
 
+// version is set via -ldflags at release time (see .goreleaser.yaml).
+var version = "dev"
+
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		printHelp(stdout)
+		return 0
+	}
+	if args[0] == "version" || args[0] == "--version" || args[0] == "-v" {
+		fmt.Fprintln(stdout, version)
 		return 0
 	}
 
@@ -241,6 +248,7 @@ Commands:
   agents run         run an agent
   agents register    register an agent
   agents remove      remove a registered agent
+  version            print the af version
 
 Use "af agents --help" for agent registry commands.`)
 }

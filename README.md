@@ -1,4 +1,4 @@
-# Agentfile - build reusable, scriptable, one-shot agents. 
+# Agentfile - build reusable, scriptable, one-shot agents
 
 AI assistents have changed our relationship with personal computing and productivity work, but there's still huge potential in using goal-driven, unattended agents within business automations, CI workflows and scripts (a.k.a "one-shot" agents).  
 This use case introduces new challenges - how to create agents for unattended, non-interactive work, how to package agents and deploy them in remote environments in a repeatable way, and how does the new Markdown programming toolchain looks like.  
@@ -23,14 +23,7 @@ kubectl run my-agent --image=itaysk/my-agent:latest
 
 ## Getting started
 
-- Build the Go CLI locally:
-
-  ```shell
-  go install ./cmd/af
-  af --help
-  ```
-
-  `af build` and `af run` require Docker. Git sources require `git` on the build machine.
+- [Installation](./docs/install.md)
 - [Tutorial](./docs/tutorial.md)
 - [Examples](./docs/examples)
 - [Reference documentation](./docs/reference/reference.md)
