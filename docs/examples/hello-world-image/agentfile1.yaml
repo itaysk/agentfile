@@ -11,4 +11,4 @@ spec:
       model: claude-haiku-4-5
   prompt:
     text: |
-      say hi using the cowsay command!
+      use the `cowsay` command to say hi!

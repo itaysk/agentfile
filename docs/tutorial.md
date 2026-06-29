@@ -215,7 +215,7 @@ spec:
       model: claude-haiku-4-5
   prompt:
     text: |
-      say hi using the cowsay command!
+      use the `cowsay` command to say hi!
 ```
 
 CLI tools are straightforward for agents to use, but MCP servers require additional setup to register with the agent harness.  
@@ -271,9 +271,10 @@ spec:
       model: claude-haiku-4-5
   prompt:
     text: |
-      get a name to greet from the file @./name
-      write a greeting to this name
-      write the result into a zip file called `greeting.zip`
+      get a name to greet from the file @name.
+      if the file is missing, abort.
+      write a greeting to this name.
+      write the result into a zip file called `greeting.zip`.
 ```
 
 Notice the agent handles input and output via the workspace.
