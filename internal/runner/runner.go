@@ -22,6 +22,7 @@ type Options struct {
 	Stdin        io.Reader
 	Stdout       io.Writer
 	Stderr       io.Writer
+	extraDockerArgs []string
 }
 
 func Run(ctx context.Context, options Options) (int, error) {
@@ -76,6 +77,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if forwardStdin {
 		args = append(args, "-i")
 	}
+	args = append(args, options.extraDockerArgs...)
 	for _, envFile := range options.EnvFiles {
 		args = append(args, "--env-file", envFile)
 	}

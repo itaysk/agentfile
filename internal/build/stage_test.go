@@ -118,6 +118,35 @@ func TestStageContextWritesClaudeMCPAndBareMode(t *testing.T) {
 	assertFileContains(t, filepath.Join(contextDir, "entrypoint"), "--mcp-config /agent/agentfile/claudecode/mcp.json")
 }
 
+func TestStageContextWritesPiRuntimeLayout(t *testing.T) {
+	contextDir := t.TempDir()
+	version := agentfile.DefaultVersion
+	project := &agentfile.Project{
+		ProjectDir: t.TempDir(),
+		AgentFile: agentfile.AgentFile{
+			APIVersion: agentfile.APIVersion,
+			Kind:       agentfile.Kind,
+			Metadata: agentfile.Metadata{
+				Name:    "pi-agent",
+				Version: &version,
+			},
+			Spec: agentfile.Spec{
+				Harness: agentfile.Harness{Pi: &agentfile.EmptyObject{}},
+				LLM:     agentfile.LLM{OpenAI: &agentfile.ModelProvider{Model: "gpt-5-mini"}},
+			},
+		},
+	}
+	assets := &agentfile.ResolvedAssets{Prompt: "say hi", HasPrompt: true}
+
+	if err := StageContext(contextDir, project, assets); err != nil {
+		t.Fatalf("StageContext returned error: %v", err)
+	}
+
+	assertPathExists(t, filepath.Join(contextDir, "agentfile", "pi", "home"))
+	assertFileContains(t, filepath.Join(contextDir, "entrypoint"), "PI_CODING_AGENT_DIR=/agent/agentfile/pi/home")
+	assertFileContains(t, filepath.Join(contextDir, "entrypoint"), `--provider "$AGENTFILE_PROVIDER"`)
+}
+
 func TestShellQuotePreservesSingleQuotesAndTrailingNewlines(t *testing.T) {
 	value := "say 'hi'\n\n"
 	script := "value=" + shQuote(value) + "\nprintf '%s' \"$value\""

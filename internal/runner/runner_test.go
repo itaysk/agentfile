@@ -70,6 +70,31 @@ func TestRunForwardsRedirectedStdin(t *testing.T) {
 	}
 }
 
+func TestRunAddsExtraDockerArgs(t *testing.T) {
+	dockerPath, logPath := installFakeDocker(t)
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devNull.Close()
+
+	code, err := Run(context.Background(), Options{
+		Project:         runnerTestProject(t),
+		DockerBinary:    dockerPath,
+		Stdin:           devNull,
+		Stdout:          io.Discard,
+		Stderr:          io.Discard,
+		extraDockerArgs: []string{"--add-host", "host.docker.internal:host-gateway"},
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("Run = (%d, %v), want success", code, err)
+	}
+	runArgs := dockerRunArgs(t, logPath)
+	if !strings.Contains(runArgs, "--add-host host.docker.internal:host-gateway") {
+		t.Fatalf("docker run args = %q, want extra docker args", runArgs)
+	}
+}
+
 func TestRunRejectsInvalidWorkspaceHostPathBeforeDocker(t *testing.T) {
 	dockerPath, logPath := installFakeDocker(t)
 	filePath := filepath.Join(t.TempDir(), "file")

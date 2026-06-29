@@ -76,7 +76,9 @@ func claudeCodeEntrypoint(af agentfile.AgentFile, assets *agentfile.ResolvedAsse
 		args = append(args, "--mcp-config /agent/agentfile/claudecode/mcp.json", "--strict-mcp-config")
 	}
 	args = append(args, "\"$AGENTFILE_PROMPT\"")
-	return "export HOME=/agent/agentfile/claudecode/home\nexport IS_SANDBOX=1\nexec " + strings.Join(args, " \\\n  ") + "\n"
+	return `export HOME=/agent/agentfile/claudecode/home
+export IS_SANDBOX=1
+exec ` + strings.Join(args, " \\\n  ") + "\n"
 }
 
 func codexEntrypoint() string {
@@ -106,7 +108,8 @@ func piEntrypoint(assets *agentfile.ResolvedAssets) string {
 		args = append(args, fmt.Sprintf("--skill %s", shQuote("/agent/agentfile/skills/"+skill.Name)))
 	}
 	args = append(args, "\"$AGENTFILE_PROMPT\"")
-	return "export PI_CODING_AGENT_DIR=/agent/agentfile/pi/home\nexec " + strings.Join(args, " \\\n  ") + "\n"
+	return `export PI_CODING_AGENT_DIR=/agent/agentfile/pi/home
+exec ` + strings.Join(args, " \\\n  ") + "\n"
 }
 
 func shQuote(value string) string {
