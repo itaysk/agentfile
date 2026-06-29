@@ -1,14 +1,20 @@
-# Agentfile: declarative agent builder
+# Why Agentfile?
 
-One-shot agents are easy to demo. They are much harder to scale and  run repeatadly and conssistently.
+The idea started when I wanted to leverage agents in my note-taking system (a.k.a. second-brain/llm-wiki). I wanted to let pre-defined agents routinely triage, curate and improve my notes for me. That meant I needed to create "agents" that are reusable, self-contained, and I can easily invoke them as needed.  
+I didn't want to code an agent with an SDK, I only care about the markdown. I didn't want to commit to one harness, LLM provider, or a cloud company. And I wanted to run this on my computer, but also elsewhere.  
+What I needed is something like docker for agents. I actually started with just a Dockerfile for the agent, but it quickly grew - With many files and skills that I needed to manage, and harness-specific flags and quirks I needed to learn, and scripts and wrappers I needed to write to fit in my workflow. And then repeat it consistently for every new agent.  
+You can think of Agentfile as a unified abstraction on top of harnesses that compiles into Docker.
 
-The moment an agent leaves an interactive chat and enters a server, a workflow, a script or CI, the prompt is no longer enough. The agent needs context, skills, tools, credentials, configurations and flags. Those pieces need to be reviewed, versioned, reproduced, and shipped together.
+My personal need also tapped into a broader observation, that people are looking for ways to deploy agents and operationalize them in production. While several cloud/PaaS agentic platform exists, I thought there's room for a Kubernetes-native experience. People trust Kubernetes, it runs practically everywhere, and it also provides many important facilities out of the box that are usefule for agents.
 
-Agentfile helps you facilitate that process. It makes working with agentic tools like Claude Code or Codex explicit, portable, and deployable. 
+One-shot agents are:
+- unattended, non-interactive
+- reusable
+- deployable
+- packaged, self-contained
+- goal-driven
 
-## The premise
-
-You may be familiar with `claude -p`, Claude's one-shot mode. Claude's documentation lists examples like these on the first page of the [Claude Overview doc](https://code.claude.com/docs/en/overview):
+I found the [Claude Overview doc](https://code.claude.com/docs/en/overview) showcases some one-shot examples:
 
 ```bash
 # Analyze recent log output
@@ -21,48 +27,25 @@ claude -p "translate new strings into French and raise a PR for review"
 git diff main --name-only | claude -p "review these changed files for security issues"
 ```
 
-These examples are compelling because they show the shape of the future: agents that can be invoked by scripts, jobs, and events and magically get a job done by a casual description.
+But these examples are naive and unrealistic. Take the first one "slack me if you see any anomalies". 
 
-They are also demos. In a real environment, each of those one-liners hides a lot of decisions that cannot be left implicit.
+There are too many unknowns:
+- What is the log format? Is it JSON, text, nginx access logs? perhaps it's binary like Linux Journal?
+- What is an "anomaly"? Is 1% increase in error rate significant? If we considered yesteday's log would we find other anomalies? Are we looking for technical failures, business anomalies, security signals, or customer-impacting symptoms?
+- And how does "Slack me" supposed to work? Which slack? Who is "me"? Which credentials? 
 
-## The contract
+To their credit, I suppose this would actually work in a local setup, because:
+- You already have Claude installed, authenticated and configured to your liking.
+- You already connected Slack to your local Claude Desktop application or Claude Code via MCP, and authenticated interactively via browser login.
+- It would have analyzed the log file and guessed it's format on the fly.
+- If the anomaly is contained to the input file, it could find something that stands out just by comparison.
 
-Take the log example: "Slack me if you see any anomalies"
+And it's definitely a good start for a personal use case or for experimentation.  
+But it's not a production-ready solution:
+- You don't want the agent to spend time and money re-learning the log format (and potentially failing occasionally) - you want to give it the tools and instructions to be successful.
+- You don't want to let the agent decide what matters for you - you want to define the criteria based on your business understanding, and you want to evolve it over time.
+- You don't want the agent to use your personal Slack or computer - you want to predefine the required integrations and credentials.
 
-What is the log format? Is it JSON, text, nginx access logs, application logs, or Linux journal output? Should the agent infer the format from the sample? What happens when it guesses correctly most of the time, but incorrectly on the incident that matters?
-
-In a real system, the input format is part of the agent contract. You would document it. You might provide examples. You might install tools like `jq` or `journalctl`. You might add a small parser or a skill that explains how to inspect the data. Without that contract, the agent spends tokens rediscovering facts the system already knows, and the result is harder to trust.
-
-The same issue appears in the word "anomaly." Is a 1% increase in error rate significant? Is a 10% traffic spike expected because marketing launched a campaign? Are we looking for technical failures, business anomalies, security signals, or customer-impacting symptoms?
-
-That judgment does not live in the one-line prompt. It lives in operational context: runbooks, alert definitions, service ownership, historical baselines, release calendars, business rules, and team-specific conventions. For serious work, the prompt becomes a document, often a set of documents, refined over time.
-
-## The integration
-
-"Slack me" sounds simple until you need to run it outside your laptop.
-
-In a local interactive setup, you might install a Slack plugin and authenticate as yourself. In automation, that is not enough. You need an MCP server or tool integration, credentials, scopes, secret management, channel policy, and a runtime environment where all of that is present before the agent starts.
-
-"Raise a PR" has the same issue. The agent needs `git` and `gh`. It needs repository access. It needs to know the contribution rules, branch naming conventions, review expectations, and what kind of changes are acceptable to submit automatically.
-
-These are not exotic requirements. They are the normal requirements that appear when a useful demo becomes a team workflow.
-
-## The runtime
-
-One-shot agents still run on models, harnesses, and configuration.
-
-What model should handle this task? A cheap model might be enough for drafting release notes, while a code migration or security review may require a stronger one. What flags should the harness use? What tools should be available? Which filesystem paths can the agent read or write?
-
-**Interactive agent use is forgiving because the user can steer the agent when something is underspecified.** Automation is less forgiving. You cannot make agent behavior deterministic, but you can lock down the inputs you control: prompts, tools, versions, model settings, credentials, runtime image, permissions, and deployment shape.
-
-That is the difference between "run this prompt" and "run this agent."
-
-## What actually happens
-
-The cute one-liner becomes a long command, then it becomes a script. Then the script grows flags, setup steps, prompt files, helper utilities, and local conventions. Someone adds a README. Someone else adds a Dockerfile. The directory becomes a git repository because the team needs review, history, and collaboration.
-
-At that point, the agent already has a project. And every team would rediscover it from scratch. 
-
-Agentfile defines that format once and for all.  
-
-Agentic tools are already good when you use and guide them yourself. The next step is making agents that you would be confident plugging into real workflows, agents that are reviewable, repeatable, portable, and scalable.
+Going down this path with claude is possible, but you'll end up with a monstrous command line with many flags, supporting files and environment variables.  
+And that's just for claude. Codex is using toml configurations. Pi has a no-mcp agenda. Each harness is different, but they all share the same core principles.  
+All of this boilerplate screams for a tool, convention and abstration to simplify and standardize the process of creating one-shot agents.

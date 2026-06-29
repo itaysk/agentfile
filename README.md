@@ -1,23 +1,28 @@
-Agentfile is framework for building reusable, goal-driven agents. 
+# Agentfile - build reusable, scriptable, one-shot agents. 
 
-Most agentic tools today are geared towards iterative development - you chat with an agent and incrementally guide it towards a goal.  
-In order to use agents in automation or for repeatable tasks, you need to pre-package the agent with all necessary instructions, tools, and configuration so that it would be reviewable, deployable, and reusable. This pattern is also called “one-shot agents”.  
+AI assistents have changed our relationship with personal computing and productivity work, but there's still huge potential in using goal-driven, unattended agents within business automations, CI workflows and scripts (a.k.a "one-shot" agents).  
+This use case introduces new challenges - how to create agents for unattended, non-interactive work, how to package agents and deploy them in remote environments in a repeatable way, and how does the new Markdown programming toolchain looks like.  
+Agentfile is an opinionated framework that answers those questions.
 
-- No code, declarative agents - driven by YAML files and project conventions.
-- Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
-- Produce standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
+- No code, declarative agents - driven by Markdown and YAML and managed in git.
+- Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.
+- Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
 
-Common use cases:
+Agentfile makes agents familiar:
 
-- Repository tasks such as review, planning, migration, release notes, and
-  issue triage.
-- Operational tasks such as incident response, automatic monitoring, and alerting.
-- Business administration tasks such as automatic responses, report generation, finance, marketing and sales ops.
-  and support workflows.
-- Prompt-heavy agents where Markdown assets should be versioned, reviewed, and collaborated between different stakeholders.
+```shell
+cd blog-post && af run grammer-check --here
+tail logfile.jsonl | af run logtriage
+cron "0 0 * * *" "af run daily-report"
+
+# casually use it like any container image
+af build -f agentfile.yaml --tag itaysk/my-agent:latest
+docker push itaysk/my-agent:latest
+kubectl run my-agent --image=itaysk/my-agent:latest
+```
 
 ## Getting started
 
-If this is your first time, see the [tutorial](./docs/tutorial.md) for an introduction.
-See the [Reference Manual](./docs/reference/reference.md) for the full product documentation.
-
+- [Tutorial](./docs/tutorial.md)
+- [Examples](./docs/examples)
+- [Reference documentation](./docs/reference/reference.md)
