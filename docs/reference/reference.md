@@ -71,7 +71,6 @@ spec:
   skills: []
   mcps: []
   envs: []
-  workspace: {}
 ```
 
 `apiVersion`, `kind`, `metadata.name`, `spec.harness`, and `spec.llm` are required.  
@@ -302,15 +301,7 @@ Inside the container, the path is always:
 The agent process runs with `/agent/workspace` as its working directory.  
 The default workspace is empty and ephemeral.
 
-`spec.workspace.hostBindPath` requests a host bind mount when the agent is run:
-
-```yaml
-spec:
-  workspace:
-    hostBindPath: /tmp/work
-```
-
-`hostBindPath` must be an absolute host directory that already exists when `af run` starts. Agentfile does not create it.
+`af run --workspace PATH` requests a host bind mount when the agent is run. `PATH` must be an existing directory. Relative paths are resolved from the current working directory. Use `--ws` as a shorter alias.
 
 When using `docker run` directly, you still need to mount the workspace yourself.
 
@@ -466,7 +457,7 @@ metadata.name:metadata.version
 Run starts an agent container and streams its output. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]
+af agents run [NAME] [--file agentfile.yaml] [--project DIR] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]
 ```
 
 Agent selection:
@@ -485,9 +476,8 @@ Run steps:
 6. Exit with the container exit code.
 
 The run command requires an effective prompt.  
-`--in PATH` sets `spec.workspace.hostBindPath`. `PATH` must be an existing directory.  
-`--here` sets `spec.workspace.hostBindPath` to the current directory.  
-`--in` and `--here` cannot be used together.
+`--workspace PATH` binds `PATH` to `/agent/workspace`. `PATH` must be an existing directory. Relative paths are resolved from the current working directory.  
+`--ws PATH` is an alias for `--workspace PATH`.
 
 `--file` defaults to `agentfile.yaml`.
 `--project` defaults to the current directory.
@@ -519,7 +509,6 @@ Field overrides are only supported by `af run`. When run directly with Docker, t
 af run hello-world --llm.anthropic.model claude-sonnet-4-5
 af run hello-world --prompt "say hi"
 af run hello-world --prompt.text "say hi"
-af run hello-world --workspace.hostBindPath /tmp/work
 ```
 
 ### Agents

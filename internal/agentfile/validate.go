@@ -76,9 +76,6 @@ func (s Spec) Validate() error {
 			return err
 		}
 	}
-	if s.Workspace.HostBindPath != "" && !filepath.IsAbs(s.Workspace.HostBindPath) {
-		return fmt.Errorf("spec.workspace.hostBindPath must be absolute")
-	}
 	return validateHarnessProvider(s.Harness.Name(), s.LLM.ProviderName(), len(s.MCPs))
 }
 

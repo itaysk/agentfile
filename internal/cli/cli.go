@@ -100,7 +100,7 @@ func runAgents(args []string, stdout, stderr io.Writer) int {
 
 func runRun(args []string, stdout, stderr io.Writer) int {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME] [--file agentfile.yaml] [--project DIR] [--in DIR] [--here] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]")
+		fmt.Fprintln(stdout, "usage: af run [NAME] [--file agentfile.yaml] [--project DIR] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [field overrides]")
 		return 0
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
@@ -118,12 +118,13 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	exitCode, err := runner.Run(context.Background(), runner.Options{
-		Project:  project,
-		Tag:      tag,
-		Env:      options.env,
-		EnvFiles: options.envFiles,
-		Stdout:   stdout,
-		Stderr:   stderr,
+		Project:   project,
+		Tag:       tag,
+		Env:       options.env,
+		EnvFiles:  options.envFiles,
+		Workspace: options.workspace,
+		Stdout:    stdout,
+		Stderr:    stderr,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "af:", err)
@@ -292,6 +293,7 @@ type runFlags struct {
 	projectSet bool
 	env        map[string]string
 	envFiles   []string
+	workspace  string
 	mutations  []fieldMutation
 }
 
@@ -390,7 +392,6 @@ func parseRegisterFlags(args []string, options *registerFlags) error {
 }
 
 func parseRunFlags(args []string, options *runFlags) error {
-	var inSet, hereSet bool
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if value, next, matched, err := matchStrFlag(args, i, arg, "--file", "-f"); matched {
@@ -407,6 +408,34 @@ func parseRunFlags(args []string, options *runFlags) error {
 			options.project, options.projectSet, i = value, true, next
 			continue
 		}
+		if value, next, matched, err := matchStrFlag(args, i, arg, "--workspace", ""); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("--workspace requires a value")
+			}
+			abs, err := filepath.Abs(value)
+			if err != nil {
+				return err
+			}
+			options.workspace, i = abs, next
+			continue
+		}
+		if value, next, matched, err := matchStrFlag(args, i, arg, "--ws", ""); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("--ws requires a value")
+			}
+			abs, err := filepath.Abs(value)
+			if err != nil {
+				return err
+			}
+			options.workspace, i = abs, next
+			continue
+		}
 		// Asset flags (--prompt, --systemPrompt) come from the spec's asset
 		// list; the override layer turns a bare value into a text source.
 		if matched, next, err := matchAssetFlag(args, i, arg, options); matched {
@@ -417,41 +446,6 @@ func parseRunFlags(args []string, options *runFlags) error {
 			continue
 		}
 		switch {
-		case arg == "--in":
-			value, next, err := consumeValue(args, i, arg)
-			if err != nil {
-				return err
-			}
-			if hereSet {
-				return fmt.Errorf("--in and --here cannot be used together")
-			}
-			abs, err := filepath.Abs(value)
-			if err != nil {
-				return err
-			}
-			inSet = true
-			options.mutations = append(options.mutations, fieldMutation{path: "workspace.hostBindPath", value: abs})
-			i = next
-		case strings.HasPrefix(arg, "--in="):
-			if hereSet {
-				return fmt.Errorf("--in and --here cannot be used together")
-			}
-			abs, err := filepath.Abs(strings.TrimPrefix(arg, "--in="))
-			if err != nil {
-				return err
-			}
-			inSet = true
-			options.mutations = append(options.mutations, fieldMutation{path: "workspace.hostBindPath", value: abs})
-		case arg == "--here":
-			if inSet {
-				return fmt.Errorf("--in and --here cannot be used together")
-			}
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			hereSet = true
-			options.mutations = append(options.mutations, fieldMutation{path: "workspace.hostBindPath", value: cwd})
 		case arg == "--env":
 			value, next, err := consumeValue(args, i, arg)
 			if err != nil {

@@ -11,7 +11,7 @@ Agentfile is an opinionated framework that answers those questions.
 Agentfile makes agents familiar:
 
 ```shell
-cd blog-post && af run grammer-check --here
+cd blog-post && af run grammer-check --workspace .
 tail logfile.jsonl | af run logtriage
 cron "0 0 * * *" "af run daily-report"
 

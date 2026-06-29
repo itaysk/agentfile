@@ -71,9 +71,6 @@
           "items": {
             "$ref": "#/$defs/env"
           }
-        },
-        "workspace": {
-          "$ref": "#/$defs/workspace"
         }
       }
     },
@@ -328,17 +325,6 @@
         },
         "value": {
           "type": "string"
-        }
-      }
-    },
-    "workspace": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "hostBindPath": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^/"
         }
       }
     },

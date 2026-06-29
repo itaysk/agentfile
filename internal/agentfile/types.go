@@ -20,14 +20,13 @@ type Metadata struct {
 }
 
 type Spec struct {
-	Harness      Harness   `yaml:"harness" json:"harness"`
-	LLM          LLM       `yaml:"llm" json:"llm"`
-	Prompt       *Source   `yaml:"prompt,omitempty" json:"prompt,omitempty"`
-	SystemPrompt *Source   `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
-	Skills       []Source  `yaml:"skills,omitempty" json:"skills,omitempty"`
-	MCPs         []MCP     `yaml:"mcps,omitempty" json:"mcps,omitempty"`
-	Envs         []Env     `yaml:"envs,omitempty" json:"envs,omitempty"`
-	Workspace    Workspace `yaml:"workspace,omitempty" json:"workspace,omitempty"`
+	Harness      Harness  `yaml:"harness" json:"harness"`
+	LLM          LLM      `yaml:"llm" json:"llm"`
+	Prompt       *Source  `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	SystemPrompt *Source  `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
+	Skills       []Source `yaml:"skills,omitempty" json:"skills,omitempty"`
+	MCPs         []MCP    `yaml:"mcps,omitempty" json:"mcps,omitempty"`
+	Envs         []Env    `yaml:"envs,omitempty" json:"envs,omitempty"`
 }
 
 type Harness struct {
@@ -96,10 +95,6 @@ type Env struct {
 type Header struct {
 	Name  string  `yaml:"name" json:"name"`
 	Value *string `yaml:"value" json:"value"`
-}
-
-type Workspace struct {
-	HostBindPath string `yaml:"hostBindPath,omitempty" json:"hostBindPath,omitempty"`
 }
 
 func (h Harness) Name() string {

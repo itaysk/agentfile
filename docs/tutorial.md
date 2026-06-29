@@ -11,7 +11,7 @@ Agentfile is an opinionated framework that answers those questions.
 Agentfile makes agents familiar:
 
 ```shell
-cd blog-post && af run grammer-check --here
+cd blog-post && af run grammer-check --workspace .
 tail logfile.jsonl | af run logtriage
 cron "0 0 * * *" "af run daily-report"
 
@@ -331,12 +331,12 @@ af run cc --prompt "say bye!"
 ```
 
 The run CLI can also facilitate runtime setup.  
-For example, the `--in` flag lets you set a host directory to bind-mount to the workspace instead of writing the Docker mount manually, and the `--here` flag sets the workspace to the current working directory.
+For example, the `--workspace` flag lets you set a host directory to bind-mount to the workspace instead of writing the Docker mount manually. Use `--ws` as a shorter alias.
 
 ```bash
-af run hello-world --in /tmp/greetings
+af run hello-world --workspace /tmp/greetings
 
-cd /tmp/greetings && af run hello-world --here
+cd /tmp/greetings && af run hello-world --ws .
 ```
 
 This pattern is especially useful for agents that perform the same work on different working directories. For example, a planner agent, coder agent, reviewer agent, all collaborating on the same code repository.

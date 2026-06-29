@@ -95,6 +95,31 @@ func TestRunAddsExtraDockerArgs(t *testing.T) {
 	}
 }
 
+func TestRunMountsWorkspace(t *testing.T) {
+	dockerPath, logPath := installFakeDocker(t)
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devNull.Close()
+	workspace := t.TempDir()
+
+	code, err := Run(context.Background(), Options{
+		Project:      runnerTestProject(t),
+		DockerBinary: dockerPath,
+		Workspace:    workspace,
+		Stdin:        devNull,
+		Stdout:       io.Discard,
+		Stderr:       io.Discard,
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("Run = (%d, %v), want success", code, err)
+	}
+	if !strings.Contains(dockerRunArgs(t, logPath), "-v "+workspace+":/agent/workspace") {
+		t.Fatalf("docker run args = %q, want workspace mount", dockerRunArgs(t, logPath))
+	}
+}
+
 func TestRunRejectsInvalidWorkspaceHostPathBeforeDocker(t *testing.T) {
 	dockerPath, logPath := installFakeDocker(t)
 	filePath := filepath.Join(t.TempDir(), "file")
@@ -102,12 +127,10 @@ func TestRunRejectsInvalidWorkspaceHostPathBeforeDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{filepath.Join(t.TempDir(), "missing"), filePath} {
-		project := runnerTestProject(t)
-		project.AgentFile.Spec.Workspace.HostBindPath = path
-
 		code, err := Run(context.Background(), Options{
-			Project:      project,
+			Project:      runnerTestProject(t),
 			DockerBinary: dockerPath,
+			Workspace:    path,
 			Stdout:       io.Discard,
 			Stderr:       io.Discard,
 		})

@@ -5,11 +5,11 @@ import "testing"
 func TestApplyOverrideSupportsGenericScalarPaths(t *testing.T) {
 	project := testProject()
 
-	if err := project.ApplyOverride("workspace.hostBindPath", "/tmp/work"); err != nil {
+	if err := project.ApplyOverride("harness.image", "example/agent:latest"); err != nil {
 		t.Fatalf("ApplyOverride returned error: %v", err)
 	}
-	if got := project.AgentFile.Spec.Workspace.HostBindPath; got != "/tmp/work" {
-		t.Fatalf("workspace host path = %q, want /tmp/work", got)
+	if got := project.AgentFile.Spec.Harness.Image; got != "example/agent:latest" {
+		t.Fatalf("harness image = %q, want example/agent:latest", got)
 	}
 }
 

@@ -54,5 +54,3 @@ spec:
   envs:
     - name: ""
       value: ""
-  workspace:
-    hostBindPath: "" # bind-mount when run. absolute path in host filesystem

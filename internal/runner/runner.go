@@ -14,14 +14,15 @@ import (
 )
 
 type Options struct {
-	Project      *agentfile.Project
-	Tag          string
-	DockerBinary string
-	Env          map[string]string
-	EnvFiles     []string
-	Stdin        io.Reader
-	Stdout       io.Writer
-	Stderr       io.Writer
+	Project         *agentfile.Project
+	Tag             string
+	DockerBinary    string
+	Env             map[string]string
+	EnvFiles        []string
+	Workspace       string
+	Stdin           io.Reader
+	Stdout          io.Writer
+	Stderr          io.Writer
 	extraDockerArgs []string
 }
 
@@ -47,7 +48,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if options.Env == nil {
 		options.Env = map[string]string{}
 	}
-	workspace := options.Project.AgentFile.Spec.Workspace.HostBindPath
+	workspace := options.Workspace
 	if workspace != "" {
 		info, err := os.Stat(workspace)
 		if err != nil {

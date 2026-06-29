@@ -57,15 +57,23 @@ func TestParseRunFlagsWorkspaceShorthands(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"--here"}, &options); err != nil {
+	if err := parseRunFlags([]string{"--workspace", "."}, &options); err != nil {
 		t.Fatalf("parseRunFlags returned error: %v", err)
 	}
-	if len(options.mutations) != 1 || options.mutations[0].path != "workspace.hostBindPath" || options.mutations[0].value != cwd {
-		t.Fatalf("mutations = %#v, want workspace.hostBindPath = cwd", options.mutations)
+	if options.workspace != cwd {
+		t.Fatalf("workspace = %q, want cwd %q", options.workspace, cwd)
 	}
 
-	if err := parseRunFlags([]string{"--in", "/tmp/work", "--here"}, &runFlags{env: map[string]string{}}); err == nil {
-		t.Fatal("parseRunFlags accepted --in with --here, want exclusivity error")
+	options = runFlags{env: map[string]string{}}
+	if err := parseRunFlags([]string{"--ws=/tmp/work"}, &options); err != nil {
+		t.Fatalf("parseRunFlags returned error: %v", err)
+	}
+	if options.workspace != "/tmp/work" {
+		t.Fatalf("workspace = %q, want /tmp/work", options.workspace)
+	}
+
+	if err := parseRunFlags([]string{"--workspace="}, &runFlags{env: map[string]string{}}); err == nil {
+		t.Fatal("parseRunFlags accepted empty --workspace, want value error")
 	}
 }
 
