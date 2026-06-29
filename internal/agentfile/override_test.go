@@ -1,0 +1,60 @@
+package agentfile
+
+import "testing"
+
+func TestApplyOverrideSupportsGenericScalarPaths(t *testing.T) {
+	project := testProject()
+
+	if err := project.ApplyOverride("workspace.hostBindPath", "/tmp/work"); err != nil {
+		t.Fatalf("ApplyOverride returned error: %v", err)
+	}
+	if got := project.AgentFile.Spec.Workspace.HostBindPath; got != "/tmp/work" {
+		t.Fatalf("workspace host path = %q, want /tmp/work", got)
+	}
+}
+
+func TestApplyOverrideRejectsListPaths(t *testing.T) {
+	project := testProject()
+	value := "info"
+	project.AgentFile.Spec.Envs = []Env{{Name: "LOG_LEVEL", Value: &value}}
+
+	if err := project.ApplyOverride("envs.0.value", "debug"); err == nil {
+		t.Fatalf("ApplyOverride returned nil, want list override error")
+	}
+	if got := project.AgentFile.Spec.Envs[0].ValueString(); got != "info" {
+		t.Fatalf("env value = %q, want unchanged info", got)
+	}
+}
+
+func TestApplyOverridePromptReplacesSourceWithText(t *testing.T) {
+	project := testProject()
+	project.AgentFile.Spec.Prompt = &Source{FS: &FilesystemSource{Path: "prompt.md"}}
+
+	if err := project.ApplyOverride("prompt", "say hi"); err != nil {
+		t.Fatalf("ApplyOverride returned error: %v", err)
+	}
+	if project.AgentFile.Spec.Prompt.Text == nil || *project.AgentFile.Spec.Prompt.Text != "say hi" {
+		t.Fatalf("prompt = %#v, want text source", project.AgentFile.Spec.Prompt)
+	}
+	if project.AgentFile.Spec.Prompt.FS != nil {
+		t.Fatalf("prompt fs source = %#v, want nil", project.AgentFile.Spec.Prompt.FS)
+	}
+}
+
+func testProject() *Project {
+	version := DefaultVersion
+	return &Project{
+		AgentFile: AgentFile{
+			APIVersion: APIVersion,
+			Kind:       Kind,
+			Metadata: Metadata{
+				Name:    "hello",
+				Version: &version,
+			},
+			Spec: Spec{
+				Harness: Harness{ClaudeCode: &EmptyObject{}},
+				LLM:     LLM{Anthropic: &ModelProvider{Model: "claude-haiku-4-5"}},
+			},
+		},
+	}
+}

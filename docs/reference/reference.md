@@ -219,6 +219,8 @@ spec:
 Skills add reusable instruction bundles to the agent.  
 `spec.skills` is a list of [source objects](#sources). Each source must resolve to one skill directory.  
 A skill directory must contain `SKILL.md`, and the skill name is the `name` field in its YAML front matter.
+Skill names must be unique within `spec.skills`.
+Skill names must be single path segments: no `/` or `\`, and not exactly `.` or `..`.
 
 ```yaml
 spec:
@@ -227,14 +229,13 @@ spec:
         path: bundles/world-greetings
 ```
 
-Duplicate skill names are invalid.  
-
 ### MCP Servers
 
 Register MCP servers to make external tools available to the harness.  
 `spec.mcps` is a list of server registrations.  
 Each MCP server requires `name`.  
 `name` must be a non-empty string.  
+MCP server names must be unique within `spec.mcps`.
 Exactly one transport must be set.  
 Supported transports are `stdio` and `http`.
 
@@ -582,10 +583,7 @@ af agents remove [NAME]
 
 ### Configuration
 
-Agentfile CLI stores state and configuration in a system-wide location determined in the following order:
-
-1. `$XDG_CONFIG_HOME/agentfile`
-2. `~/.config/agentfile`
+Agentfile CLI stores state and configuration under the OS user configuration directory. See [here](https://pkg.go.dev/os#UserConfigDir) for details.
 
 ## Direct Docker Use
 

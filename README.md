@@ -23,6 +23,14 @@ kubectl run my-agent --image=itaysk/my-agent:latest
 
 ## Getting started
 
+- Build the Go CLI locally:
+
+  ```shell
+  go install ./cmd/af
+  af --help
+  ```
+
+  `af build` and `af run` require Docker. Git sources require `git` on the build machine.
 - [Tutorial](./docs/tutorial.md)
 - [Examples](./docs/examples)
 - [Reference documentation](./docs/reference/reference.md)
