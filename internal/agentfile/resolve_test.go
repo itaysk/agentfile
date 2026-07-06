@@ -34,6 +34,50 @@ func TestExtractArchiveSniffsZipWithoutHelpfulURLSuffix(t *testing.T) {
 	}
 }
 
+func TestExtractZipSkipsSymlinksAndStripsSpecialMode(t *testing.T) {
+	var data bytes.Buffer
+	writer := zip.NewWriter(&data)
+
+	header := &zip.FileHeader{Name: "regular"}
+	header.SetMode(os.ModeSetuid | os.ModeSetgid | os.ModeSticky | 0o755)
+	file, err := writer.CreateHeader(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte("content")); err != nil {
+		t.Fatal(err)
+	}
+
+	header = &zip.FileHeader{Name: "link"}
+	header.SetMode(os.ModeSymlink | 0o777)
+	file, err = writer.CreateHeader(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte("regular")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := t.TempDir()
+	if err := extractZip(data.Bytes(), dest); err != nil {
+		t.Fatalf("extractZip returned error: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dest, "link")); !os.IsNotExist(err) {
+		t.Fatalf("symlink stat error = %v, want not exist", err)
+	}
+	info, err := os.Stat(filepath.Join(dest, "regular"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+		t.Fatalf("mode = %v, want no special bits", info.Mode())
+	}
+}
+
 func TestExtractArchiveSniffsGzipWithoutHelpfulURLSuffix(t *testing.T) {
 	var data bytes.Buffer
 	gzipWriter := gzip.NewWriter(&data)
@@ -57,6 +101,16 @@ func TestExtractArchiveSniffsGzipWithoutHelpfulURLSuffix(t *testing.T) {
 	}
 	if !regularFileExists(filepath.Join(dest, "SKILL.md")) {
 		t.Fatal("SKILL.md was not extracted")
+	}
+}
+
+func TestReadLimitedRejectsOversize(t *testing.T) {
+	_, err := readLimited(strings.NewReader("abcd"), 3, "test body")
+	if err == nil {
+		t.Fatal("readLimited succeeded, want oversize error")
+	}
+	if !strings.Contains(err.Error(), "test body exceeds 3 bytes") {
+		t.Fatalf("error = %q, want size detail", err)
 	}
 }
 

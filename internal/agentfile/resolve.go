@@ -14,8 +14,14 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	httpSourceTimeout = 60 * time.Second
+	maxHTTPSourceSize = 100 << 20
 )
 
 type Resolver struct {
@@ -45,7 +51,7 @@ func NewResolver(projectDir string) (*Resolver, error) {
 	return &Resolver{
 		projectDir: projectDir,
 		tempDir:    tempDir,
-		httpClient: http.DefaultClient,
+		httpClient: &http.Client{Timeout: httpSourceTimeout},
 	}, nil
 }
 
@@ -173,10 +179,10 @@ func (r *Resolver) resolveGit(source GitSource) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	runGit := func(action string, args ...string) error {
+	runGit := func(args ...string) error {
 		cmd := exec.Command("git", args...)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("git %s failed: %w: %s", action, err, strings.TrimSpace(string(output)))
+			return fmt.Errorf("git %s failed: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 		}
 		return nil
 	}
@@ -185,18 +191,18 @@ func (r *Resolver) resolveGit(source GitSource) (string, error) {
 	if source.Commit != "" {
 		args = append(args, "--depth", "1", "--no-checkout", repoURL, cloneDir)
 		shallowOK := false
-		if err := runGit("clone", args...); err == nil {
-			shallowOK = runGit("fetch", "-C", cloneDir, "fetch", "--quiet", "--depth", "1", "origin", source.Commit) == nil
+		if err := runGit(args...); err == nil {
+			shallowOK = runGit("-C", cloneDir, "fetch", "--quiet", "--depth", "1", "origin", source.Commit) == nil
 		}
 		if !shallowOK {
 			if err := os.RemoveAll(cloneDir); err != nil {
 				return "", err
 			}
-			if err := runGit("clone", "clone", "--quiet", repoURL, cloneDir); err != nil {
+			if err := runGit("clone", "--quiet", repoURL, cloneDir); err != nil {
 				return "", err
 			}
 		}
-		if err := runGit("checkout", "-C", cloneDir, "checkout", "--quiet", source.Commit); err != nil {
+		if err := runGit("-C", cloneDir, "checkout", "--quiet", source.Commit); err != nil {
 			return "", err
 		}
 	} else {
@@ -205,7 +211,7 @@ func (r *Resolver) resolveGit(source GitSource) (string, error) {
 			args = append(args, "--branch", source.Ref)
 		}
 		args = append(args, repoURL, cloneDir)
-		if err := runGit("clone", args...); err != nil {
+		if err := runGit(args...); err != nil {
 			return "", err
 		}
 	}
@@ -234,7 +240,18 @@ func (r *Resolver) fetchHTTP(rawURL string) ([]byte, error) {
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		return nil, fmt.Errorf("HTTP %d from %s", response.StatusCode, rawURL)
 	}
-	return io.ReadAll(response.Body)
+	return readLimited(response.Body, maxHTTPSourceSize, rawURL)
+}
+
+func readLimited(reader io.Reader, limit int64, label string) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s exceeds %d bytes", label, limit)
+	}
+	return data, nil
 }
 
 func (r *Resolver) fetchAndExtractHTTP(rawURL string) (string, error) {
@@ -306,9 +323,12 @@ func extractZip(data []byte, dest string) error {
 			return err
 		}
 		if file.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, file.Mode()); err != nil {
+			if err := os.MkdirAll(target, file.Mode().Perm()); err != nil {
 				return err
 			}
+			continue
+		}
+		if !file.Mode().IsRegular() {
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -318,7 +338,7 @@ func extractZip(data []byte, dest string) error {
 		if err != nil {
 			return err
 		}
-		if err := writeFileFromReader(target, src, file.Mode()); err != nil {
+		if err := writeFileFromReader(target, src, file.Mode().Perm()); err != nil {
 			src.Close()
 			return err
 		}
@@ -345,14 +365,14 @@ func extractTar(reader io.Reader, dest string) error {
 		}
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
+			if err := os.MkdirAll(target, os.FileMode(header.Mode).Perm()); err != nil {
 				return err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			if err := writeFileFromReader(target, tarReader, os.FileMode(header.Mode)); err != nil {
+			if err := writeFileFromReader(target, tarReader, os.FileMode(header.Mode).Perm()); err != nil {
 				return err
 			}
 		default:

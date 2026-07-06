@@ -381,8 +381,10 @@ http:
 If `archive` is `false`, the response body is used as one file.  
 If `archive` is `true`, the response body is extracted.  
 Supported archive formats are `zip`, `tar`, `tar.gz`, and `tgz`. Archive format is detected from the URL suffix first, then by common magic bytes such as zip and gzip when the URL does not include a useful extension.
+Archive extraction writes only directories and regular files. Symlinks and other special entries are skipped, and archive mode bits are reduced to regular permission bits.
 
 HTTP redirects are followed.  
+HTTP source fetches must complete within 60 seconds and responses must be at most 100 MiB.  
 Non-2xx HTTP responses are invalid.
 
 ## Discovery
