@@ -5,7 +5,7 @@ builds:
     binary: af
     env:
       - CGO_ENABLED=0
-    goos: [darwin]
+    goos: [darwin, linux]
     goarch: [amd64, arm64]
     ldflags:
       - -s -w -X github.com/itaysk/agentfile/internal/cli.version={{ .Version }}

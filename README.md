@@ -1,7 +1,7 @@
 # Agentfile - build reusable, scriptable, one-shot agents
 
-AI assistents have changed our relationship with personal computing and productivity work, but there's still huge potential in using goal-driven, unattended agents within business automations, CI workflows and scripts (a.k.a "one-shot" agents).  
-This use case introduces new challenges - how to create agents for unattended, non-interactive work, how to package agents and deploy them in remote environments in a repeatable way, and how does the new Markdown programming toolchain looks like.  
+AI assistants have changed our relationship with personal computing and productivity work, but there's still huge potential in using goal-driven, unattended agents within business automations, CI workflows and scripts (a.k.a "one-shot" agents).  
+This use case introduces new challenges - how to create agents for unattended, non-interactive work, how to package agents and deploy them in remote environments in a repeatable way, and what does the new Markdown programming toolchain looks like.  
 Agentfile is an opinionated framework that answers those questions.
 
 - No code, declarative agents - driven by Markdown and YAML and managed in git.
@@ -11,7 +11,7 @@ Agentfile is an opinionated framework that answers those questions.
 Agentfile makes agents familiar:
 
 ```shell
-cd blog-post && af run grammer-check --workspace .
+cd blog-post && af run grammar-check --workspace .
 tail logfile.jsonl | af run logtriage
 cron "0 0 * * *" "af run daily-report"
 
