@@ -45,12 +45,21 @@ spec:
         command: [""] # command parts as strings array
         envs:
           - name: ""
-            value: ""
+            # mutually exclusive:
+            value: "" # literal, baked into the image
+            runtimeEnv: # container environment variable read at run time; required at container start
+              name: ""
       http:
         url: ""
         headers:
           - name: ""
-            value: ""
+            # mutually exclusive:
+            value: "" # literal, baked into the image
+            runtimeEnv: # container environment variable read at run time; required at container start
+              name: ""
   envs:
     - name: ""
-      value: ""
+      # mutually exclusive:
+      value: "" # literal, baked into the image
+      runtimeEnv: # container environment variable read at run time; required at container start
+        name: ""

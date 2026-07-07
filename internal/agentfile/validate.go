@@ -10,6 +10,14 @@ import (
 
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// RefTokenPrefix marks runtime-variable placeholders in generated harness
+// config content between build and entrypoint render.
+const RefTokenPrefix = "__AGENTFILE_REF_"
+
+// reservedEnvPrefix is owned by the generated entrypoint (AGENTFILE_PROMPT,
+// AGENTFILE_ESC_*, ...); user entries must stay out of it.
+const reservedEnvPrefix = "AGENTFILE_"
+
 func (af AgentFile) Validate() error {
 	if af.APIVersion != APIVersion {
 		return fmt.Errorf("apiVersion must be %q", APIVersion)
@@ -177,12 +185,9 @@ func (m MCP) Validate(path string) error {
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 			return fmt.Errorf("%s.http.url must be a valid URL", path)
 		}
-		for i, header := range m.HTTP.Headers {
-			if header.Name == "" {
-				return fmt.Errorf("%s.http.headers[%d].name is required", path, i)
-			}
-			if header.Value == nil {
-				return fmt.Errorf("%s.http.headers[%d].value is required", path, i)
+		for i := range m.HTTP.Headers {
+			if err := m.HTTP.Headers[i].Validate(fmt.Sprintf("%s.http.headers[%d]", path, i)); err != nil {
+				return err
 			}
 		}
 	}
@@ -196,8 +201,36 @@ func (e Env) Validate(path string) error {
 	if !envNamePattern.MatchString(e.Name) {
 		return fmt.Errorf("%s.name must match [A-Za-z_][A-Za-z0-9_]*", path)
 	}
-	if e.Value == nil {
-		return fmt.Errorf("%s.value is required", path)
+	if strings.HasPrefix(e.Name, reservedEnvPrefix) {
+		return fmt.Errorf("%s.name must not start with reserved prefix %s", path, reservedEnvPrefix)
+	}
+	return e.ValueSource.Validate(path)
+}
+
+func (h Header) Validate(path string) error {
+	if h.Name == "" {
+		return fmt.Errorf("%s.name is required", path)
+	}
+	if strings.HasPrefix(h.Name, reservedEnvPrefix) {
+		return fmt.Errorf("%s.name must not start with reserved prefix %s", path, reservedEnvPrefix)
+	}
+	return h.ValueSource.Validate(path)
+}
+
+func (v ValueSource) Validate(path string) error {
+	if v.TypeCount() != 1 {
+		return fmt.Errorf("%s must set exactly one of value or runtimeEnv", path)
+	}
+	if v.Value != nil && strings.Contains(*v.Value, RefTokenPrefix) {
+		return fmt.Errorf("%s.value must not contain %s", path, RefTokenPrefix)
+	}
+	if v.RuntimeEnv != nil {
+		if !envNamePattern.MatchString(v.RuntimeEnv.Name) {
+			return fmt.Errorf("%s.runtimeEnv.name must match [A-Za-z_][A-Za-z0-9_]*", path)
+		}
+		if strings.HasPrefix(v.RuntimeEnv.Name, reservedEnvPrefix) {
+			return fmt.Errorf("%s.runtimeEnv.name must not start with reserved prefix %s", path, reservedEnvPrefix)
+		}
 	}
 	return nil
 }

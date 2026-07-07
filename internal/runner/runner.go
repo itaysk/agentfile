@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
-	"sort"
+	"slices"
 
 	"github.com/itaysk/agentfile/internal/agentfile"
 	buildpkg "github.com/itaysk/agentfile/internal/build"
@@ -82,8 +83,8 @@ func Run(ctx context.Context, options Options) (int, error) {
 	for _, envFile := range options.EnvFiles {
 		args = append(args, "--env-file", envFile)
 	}
-	envs := runtimeEnv(options.Project.AgentFile, options.Env)
-	for _, key := range sortedKeys(envs) {
+	envs := runEnv(options.Project.AgentFile, options.Env)
+	for _, key := range slices.Sorted(maps.Keys(envs)) {
 		args = append(args, "-e", key+"="+envs[key])
 	}
 	if workspace != "" {
@@ -116,27 +117,22 @@ func shouldForwardStdin(reader io.Reader) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice == 0
 }
 
-func runtimeEnv(af agentfile.AgentFile, explicit map[string]string) map[string]string {
+// runEnv merges explicit --env values with host-forwarded variables: exactly
+// the runtimeEnv names declared in the spec, nothing implicit. Missing names
+// are not an error here — an --env-file may supply them, and the entrypoint's
+// guard is the authoritative failure point.
+func runEnv(af agentfile.AgentFile, explicit map[string]string) map[string]string {
 	envs := map[string]string{}
 	for key, value := range explicit {
 		envs[key] = value
 	}
-	credential := agentfile.ProviderCredentialEnv(af.Spec.LLM.ProviderName())
-	if credential != "" {
-		if _, explicitCredential := envs[credential]; !explicitCredential {
-			if value, ok := os.LookupEnv(credential); ok {
-				envs[credential] = value
-			}
+	for _, name := range af.Spec.RuntimeEnvNames() {
+		if _, ok := envs[name]; ok {
+			continue
+		}
+		if value, ok := os.LookupEnv(name); ok {
+			envs[name] = value
 		}
 	}
 	return envs
-}
-
-func sortedKeys(values map[string]string) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

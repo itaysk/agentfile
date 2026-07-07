@@ -1,5 +1,10 @@
 package agentfile
 
+import (
+	"maps"
+	"slices"
+)
+
 const (
 	APIVersion = "agentfile.build/v1"
 	Kind       = "Agent"
@@ -87,14 +92,31 @@ type HTTPMCP struct {
 	Headers []Header `yaml:"headers,omitempty" json:"headers,omitempty"`
 }
 
+// ValueSource is the one-of value of a name/value entry, mirroring the Source
+// paradigm: exactly one member is set. New value sources are added here and
+// take effect for envs and headers alike.
+type ValueSource struct {
+	Value      *string           `yaml:"value,omitempty" json:"value,omitempty"`
+	RuntimeEnv *RuntimeEnvSource `yaml:"runtimeEnv,omitempty" json:"runtimeEnv,omitempty"`
+}
+
+// RuntimeEnvSource reads the entry's value from a container environment
+// variable at container start. Referenced variables are required: the
+// container fails when one is unset. Empty is a value: a variable set to ""
+// is used verbatim and does not trigger the required guard. Runtime values
+// never appear in image layers.
+type RuntimeEnvSource struct {
+	Name string `yaml:"name" json:"name"`
+}
+
 type Env struct {
-	Name  string  `yaml:"name" json:"name"`
-	Value *string `yaml:"value" json:"value"`
+	Name        string `yaml:"name" json:"name"`
+	ValueSource `yaml:",inline"`
 }
 
 type Header struct {
-	Name  string  `yaml:"name" json:"name"`
-	Value *string `yaml:"value" json:"value"`
+	Name        string `yaml:"name" json:"name"`
+	ValueSource `yaml:",inline"`
 }
 
 func (h Harness) Name() string {
@@ -201,29 +223,60 @@ func TextSource(value string) Source {
 	return Source{Text: &value}
 }
 
-func ProviderCredentialEnv(provider string) string {
-	switch provider {
-	case "anthropic":
-		return "ANTHROPIC_API_KEY"
-	case "openai":
-		return "OPENAI_API_KEY"
-	case "openrouter":
-		return "OPENROUTER_API_KEY"
-	default:
+func (v ValueSource) ValueString() string {
+	if v.Value == nil {
 		return ""
 	}
+	return *v.Value
 }
 
-func (e Env) ValueString() string {
-	if e.Value == nil {
-		return ""
+func (v ValueSource) TypeCount() int {
+	count := 0
+	if v.Value != nil {
+		count++
 	}
-	return *e.Value
+	if v.RuntimeEnv != nil {
+		count++
+	}
+	return count
 }
 
-func (h Header) ValueString() string {
-	if h.Value == nil {
-		return ""
+// RuntimeEnvNames returns every distinct runtimeEnv name in the spec, sorted:
+// the set the runner forwards from the host and the entrypoint requires at
+// container start.
+func (s Spec) RuntimeEnvNames() []string {
+	set := map[string]struct{}{}
+	for _, env := range s.Envs {
+		if env.RuntimeEnv != nil {
+			set[env.RuntimeEnv.Name] = struct{}{}
+		}
 	}
-	return *h.Value
+	for _, name := range s.ConfigRefNames() {
+		set[name] = struct{}{}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+// ConfigRefNames returns the distinct runtimeEnv names referenced by harness
+// config files (MCP stdio envs and HTTP headers), sorted — these need
+// JSON/TOML escaping at container start; spec.envs references do not.
+func (s Spec) ConfigRefNames() []string {
+	set := map[string]struct{}{}
+	for _, mcp := range s.MCPs {
+		if mcp.Stdio != nil {
+			for _, env := range mcp.Stdio.Envs {
+				if env.RuntimeEnv != nil {
+					set[env.RuntimeEnv.Name] = struct{}{}
+				}
+			}
+		}
+		if mcp.HTTP != nil {
+			for _, header := range mcp.HTTP.Headers {
+				if header.RuntimeEnv != nil {
+					set[header.RuntimeEnv.Name] = struct{}{}
+				}
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
 }

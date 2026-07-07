@@ -204,8 +204,74 @@ spec:
 	if err == nil {
 		t.Fatal("Load succeeded, want missing env value error")
 	}
-	if !strings.Contains(err.Error(), "spec.envs[0].value") {
+	if !strings.Contains(err.Error(), "spec.envs[0] must set exactly one of value or runtimeEnv") {
 		t.Fatalf("error = %q, want env value detail", err)
+	}
+}
+
+func TestLoadParsesRuntimeEnv(t *testing.T) {
+	projectDir := t.TempDir()
+	writeTestFile(t, filepath.Join(projectDir, "agentfile.yaml"), `apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello
+spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: claude-haiku-4-5
+  envs:
+    - name: GH_TOKEN
+      runtimeEnv:
+        name: GITHUB_TOKEN
+  mcps:
+    - name: search
+      http:
+        url: https://example.com/mcp
+        headers:
+          - name: Authorization
+            runtimeEnv:
+              name: SEARCH_MCP_AUTH
+`)
+
+	project, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if got := project.AgentFile.Spec.Envs[0].RuntimeEnv.Name; got != "GITHUB_TOKEN" {
+		t.Fatalf("env runtimeEnv name = %q, want GITHUB_TOKEN", got)
+	}
+	if got := project.AgentFile.Spec.MCPs[0].HTTP.Headers[0].RuntimeEnv.Name; got != "SEARCH_MCP_AUTH" {
+		t.Fatalf("header runtimeEnv name = %q, want SEARCH_MCP_AUTH", got)
+	}
+}
+
+func TestLoadRejectsUnknownRuntimeEnvField(t *testing.T) {
+	projectDir := t.TempDir()
+	writeTestFile(t, filepath.Join(projectDir, "agentfile.yaml"), `apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello
+spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: claude-haiku-4-5
+  envs:
+    - name: GH_TOKEN
+      runtimeEnv:
+        name: GITHUB_TOKEN
+        madeUp: true
+`)
+
+	_, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
+	if err == nil {
+		t.Fatal("Load succeeded, want unknown field error")
+	}
+	if !strings.Contains(err.Error(), "field madeUp not found") {
+		t.Fatalf("error = %q, want unknown field detail", err)
 	}
 }
 

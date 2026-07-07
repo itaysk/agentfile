@@ -498,7 +498,7 @@ func parseEnv(raw string) (string, string, error) {
 		return "", "", fmt.Errorf("--env requires KEY or KEY=VALUE")
 	}
 	envValue := value
-	if err := (agentfile.Env{Name: key, Value: &envValue}).Validate("--env"); err != nil {
+	if err := (agentfile.Env{Name: key, ValueSource: agentfile.ValueSource{Value: &envValue}}).Validate("--env"); err != nil {
 		return "", "", err
 	}
 	if ok {

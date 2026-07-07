@@ -1,0 +1,17 @@
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello-world
+spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: claude-haiku-4-5
+  prompt:
+    text: |
+      say hi!
+  envs:
+    - name: ANTHROPIC_API_KEY
+      runtimeEnv:
+        name: ANTHROPIC_API_KEY

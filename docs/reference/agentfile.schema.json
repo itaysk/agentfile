@@ -303,21 +303,28 @@
     "env": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "value"],
+      "required": ["name"],
       "properties": {
         "name": {
           "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          "pattern": "^(?!AGENTFILE_)[A-Za-z_][A-Za-z0-9_]*$"
         },
         "value": {
           "type": "string"
+        },
+        "runtimeEnv": {
+          "$ref": "#/$defs/runtimeEnv"
         }
-      }
+      },
+      "oneOf": [
+        { "required": ["value"] },
+        { "required": ["runtimeEnv"] }
+      ]
     },
     "header": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "value"],
+      "required": ["name"],
       "properties": {
         "name": {
           "type": "string",
@@ -325,6 +332,24 @@
         },
         "value": {
           "type": "string"
+        },
+        "runtimeEnv": {
+          "$ref": "#/$defs/runtimeEnv"
+        }
+      },
+      "oneOf": [
+        { "required": ["value"] },
+        { "required": ["runtimeEnv"] }
+      ]
+    },
+    "runtimeEnv": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^(?!AGENTFILE_)[A-Za-z_][A-Za-z0-9_]*$"
         }
       }
     },

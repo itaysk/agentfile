@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,39 +11,45 @@ import (
 	"github.com/itaysk/agentfile/internal/agentfile"
 )
 
-func writeHarnessConfig(agentDir string, af agentfile.AgentFile, assets *agentfile.ResolvedAssets) error {
+// configFile is harness config content destined for an absolute in-container
+// path. It is staged into the image at that path as-is — with placeholder
+// tokens where runtime values go — and the generated entrypoint substitutes
+// the tokens in place at container start. A file without runtime references
+// is final as staged.
+type configFile struct {
+	path    string
+	content string
+}
+
+func refToken(name string) string {
+	return agentfile.RefTokenPrefix + name + "__"
+}
+
+func harnessConfigFiles(af agentfile.AgentFile, assets *agentfile.ResolvedAssets) ([]configFile, error) {
 	switch af.Spec.Harness.Name() {
 	case "claudecode":
-		return writeClaudeCodeConfig(agentDir, af)
+		return claudeCodeConfigFiles(af)
 	case "codex":
-		return writeCodexConfig(agentDir, af, assets)
+		return codexConfigFiles(af, assets), nil
 	case "pi":
-		return os.MkdirAll(filepath.Join(agentDir, "pi", "home"), 0o755)
+		return nil, nil
 	default:
-		return fmt.Errorf("unsupported harness %q", af.Spec.Harness.Name())
+		return nil, fmt.Errorf("unsupported harness %q", af.Spec.Harness.Name())
 	}
 }
 
-func writeClaudeCodeConfig(agentDir string, af agentfile.AgentFile) error {
-	if err := os.MkdirAll(filepath.Join(agentDir, "claudecode", "home"), 0o755); err != nil {
-		return err
-	}
+func claudeCodeConfigFiles(af agentfile.AgentFile) ([]configFile, error) {
 	if len(af.Spec.MCPs) == 0 {
-		return nil
+		return nil, nil
 	}
 	config := map[string]any{
 		"mcpServers": claudeMCPServers(af.Spec.MCPs),
 	}
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	data = append(data, '\n')
-	configPath := filepath.Join(agentDir, "claudecode", "mcp.json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(configPath, data, 0o644)
+	return []configFile{{path: "/agent/agentfile/claudecode/mcp.json", content: string(data) + "\n"}}, nil
 }
 
 func claudeMCPServers(mcps []agentfile.MCP) map[string]any {
@@ -62,7 +66,7 @@ func claudeMCPServers(mcps []agentfile.MCP) map[string]any {
 			if len(mcp.Stdio.Envs) > 0 {
 				envs := map[string]string{}
 				for _, env := range mcp.Stdio.Envs {
-					envs[env.Name] = env.ValueString()
+					envs[env.Name] = configValue(env.ValueSource)
 				}
 				server["env"] = envs
 			}
@@ -76,7 +80,7 @@ func claudeMCPServers(mcps []agentfile.MCP) map[string]any {
 		if len(mcp.HTTP.Headers) > 0 {
 			headers := map[string]string{}
 			for _, header := range mcp.HTTP.Headers {
-				headers[header.Name] = header.ValueString()
+				headers[header.Name] = configValue(header.ValueSource)
 			}
 			server["headers"] = headers
 		}
@@ -85,11 +89,17 @@ func claudeMCPServers(mcps []agentfile.MCP) map[string]any {
 	return servers
 }
 
-func writeCodexConfig(agentDir string, af agentfile.AgentFile, assets *agentfile.ResolvedAssets) error {
-	configDir := filepath.Join(agentDir, "codex", "home", ".codex")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return err
+// configValue renders a value source into harness config content: literals
+// verbatim, runtime sources as placeholder tokens the entrypoint expands.
+// New value-source kinds get their branch here.
+func configValue(v agentfile.ValueSource) string {
+	if v.RuntimeEnv != nil {
+		return refToken(v.RuntimeEnv.Name)
 	}
+	return v.ValueString()
+}
+
+func codexConfigFiles(af agentfile.AgentFile, assets *agentfile.ResolvedAssets) []configFile {
 	var builder strings.Builder
 	builder.WriteString("project_doc_max_bytes = 0\n")
 	if assets.HasSystemPrompt {
@@ -101,7 +111,7 @@ func writeCodexConfig(agentDir string, af agentfile.AgentFile, assets *agentfile
 		builder.WriteString("\n")
 		writeCodexMCPConfig(&builder, af.Spec.MCPs)
 	}
-	return os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(builder.String()), 0o644)
+	return []configFile{{path: "/agent/agentfile/codex/home/.codex/config.toml", content: builder.String()}}
 }
 
 func writeCodexMCPConfig(builder *strings.Builder, mcps []agentfile.MCP) {
@@ -129,7 +139,7 @@ func writeCodexMCPConfig(builder *strings.Builder, mcps []agentfile.MCP) {
 				for _, env := range envs {
 					builder.WriteString(tomlString(env.Name))
 					builder.WriteString(" = ")
-					builder.WriteString(tomlString(env.ValueString()))
+					builder.WriteString(tomlString(configValue(env.ValueSource)))
 					builder.WriteString("\n")
 				}
 			}
@@ -150,7 +160,7 @@ func writeCodexMCPConfig(builder *strings.Builder, mcps []agentfile.MCP) {
 func headersMap(headers []agentfile.Header) map[string]string {
 	result := map[string]string{}
 	for _, header := range headers {
-		result[header.Name] = header.ValueString()
+		result[header.Name] = configValue(header.ValueSource)
 	}
 	return result
 }

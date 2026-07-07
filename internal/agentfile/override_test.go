@@ -16,7 +16,7 @@ func TestApplyOverrideSupportsGenericScalarPaths(t *testing.T) {
 func TestApplyOverrideRejectsListPaths(t *testing.T) {
 	project := testProject()
 	value := "info"
-	project.AgentFile.Spec.Envs = []Env{{Name: "LOG_LEVEL", Value: &value}}
+	project.AgentFile.Spec.Envs = []Env{{Name: "LOG_LEVEL", ValueSource: ValueSource{Value: &value}}}
 
 	if err := project.ApplyOverride("envs.0.value", "debug"); err == nil {
 		t.Fatalf("ApplyOverride returned nil, want list override error")

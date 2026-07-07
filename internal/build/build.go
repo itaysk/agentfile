@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/itaysk/agentfile/internal/agentfile"
 	"gopkg.in/yaml.v3"
@@ -95,13 +96,40 @@ func StageContext(contextDir string, project *agentfile.Project, assets *agentfi
 	if err := stageSkills(agentDir, project.AgentFile.Spec.Harness.Name(), assets.Skills); err != nil {
 		return err
 	}
-	if err := writeHarnessConfig(agentDir, project.AgentFile, assets); err != nil {
+	if err := stageHarnessHome(agentDir, project.AgentFile.Spec.Harness.Name()); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(contextDir, "entrypoint"), []byte(entrypointScript(project.AgentFile, assets)), 0o755); err != nil {
+	configs, err := harnessConfigFiles(project.AgentFile, assets)
+	if err != nil {
+		return err
+	}
+	for _, config := range configs {
+		dest := filepath.Join(contextDir, filepath.FromSlash(strings.TrimPrefix(config.path, "/agent/")))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dest, []byte(config.content), 0o644); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "entrypoint"), []byte(entrypointScript(project.AgentFile, assets, configs)), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(contextDir, "Dockerfile"), []byte(dockerfile(project.AgentFile.Spec.Harness.BaseImage())), 0o644)
+}
+
+var harnessHomes = map[string]string{
+	"claudecode": "claudecode/home",
+	"codex":      "codex/home/.codex",
+	"pi":         "pi/home",
+}
+
+func stageHarnessHome(agentDir, harness string) error {
+	home, ok := harnessHomes[harness]
+	if !ok {
+		return fmt.Errorf("unsupported harness %q", harness)
+	}
+	return os.MkdirAll(filepath.Join(agentDir, filepath.FromSlash(home)), 0o755)
 }
 
 func dockerfile(baseImage string) string {

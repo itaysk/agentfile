@@ -26,14 +26,23 @@ The agent process runs with `/agent/workspace` as its working directory. The sta
 | Skills | `/agent/agentfile/skills/<skill-name>/...` |
 | Harness config | `/agent/agentfile/<harness>/...` |
 
+Harness config files are staged into the image at their `/agent/agentfile/<harness>/` paths with a placeholder token in place of each `runtimeEnv` reference. At container start, the generated entrypoint substitutes the tokens with values from the container environment, in place. A config file without runtime references is final as staged. Runtime values never appear in image layers, regardless of harness capabilities.
+
 The image entrypoint must:
 
-1. Apply `spec.envs` as default environment variables.
-2. Set the harness home and config environment described below.
-3. Run from `/agent/workspace`.
-4. Pass the exact resolved prompt text to the harness one-shot command.
-5. Stream harness stdout and stderr unchanged.
-6. Exit with the harness process exit code.
+1. Validate that every runtime variable is provided. Empty string is a value and considered provided.
+2. Substitute placeholder values in the staged harness config files, escaped for the config format (JSON/TOML).
+3. Apply `spec.envs` as default environment variables. `runtimeEnv` entries resolve from their source variable.
+4. Set the harness home and config environment described below.
+5. Run from `/agent/workspace`.
+6. Exit before launching the harness when `AGENTFILE_RENDER_ONLY` is set and non-empty.
+7. Pass the exact resolved prompt text to the harness one-shot command.
+8. Stream harness stdout and stderr unchanged.
+9. Exit with the harness process exit code.
+
+The entrypoint owns the `AGENTFILE_` environment variable namespace: it publishes `AGENTFILE_PROMPT`, `AGENTFILE_PROVIDER`, `AGENTFILE_MODEL`, and `AGENTFILE_SYSTEM_PROMPT`, reads `AGENTFILE_RENDER_ONLY`, and may use further `AGENTFILE_`-prefixed variables internally (for example during config substitution). This is why agentfile entry names and `runtimeEnv` names must not start with `AGENTFILE_`.
+
+The entrypoint resolves each runtime variable once and substitutes that single resolution into every config token that references it.
 
 ## Harness Homes
 
@@ -165,8 +174,6 @@ http_headers = { Authorization = "Bearer token" }
 ```
 
 For a `stdio.command` array, the first item becomes `command` and remaining items become `args`.
-
-HTTP header values from the agentfile are literal values. They are not secret references.
 
 ## Harness Commands
 

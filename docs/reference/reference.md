@@ -16,6 +16,7 @@ An implementation must do the behavior described here. Nothing else is part of A
   - [Skills](#skills)
   - [MCP Servers](#mcp-servers)
   - [Environment](#environment)
+  - [Runtime Variables](#runtime-variables)
   - [Workspace](#workspace)
 - [Sources](#sources)
   - [Text Source](#text-source)
@@ -178,8 +179,9 @@ spec:
 
 Model names are strings. Agentfile does not validate model catalogs.
 
-Credentials are runtime input. They are not stored in the image.  
-Default credential environment variables are:
+LLM credentials are runtime input, injected into the container environment when the agent runs. See [Runtime Variables](#runtime-variables) for how to automate this.
+
+Well-known harness/LLM provider environment variables:
 
 | Provider | Environment variable |
 | --- | --- |
@@ -254,7 +256,8 @@ spec:
         url: https://example.com/mcp
         headers:
           - name: Authorization
-            value: Bearer token
+            runtimeEnv:
+              name: SEARCH_MCP_AUTH
 ```
 
 For `stdio`, `command` is required and must be a non-empty string array. `envs` is optional:
@@ -265,14 +268,19 @@ stdio:
   envs:
     - name: EXAMPLE
       value: value
+    - name: GITHUB_PERSONAL_ACCESS_TOKEN
+      runtimeEnv:
+        name: GITHUB_TOKEN
 ```
 
-MCP `envs` entries use the same shape and name rules as `spec.envs`.
+MCP `envs` entries use the same shape and name rules as `spec.envs`, see [Environment](#environment).
 
 For `http`, `url` is required.  
-`headers` is optional.
+`headers` is optional. Header entries use the same value rules as `spec.envs` entries, see [Environment](#environment). Name may be any valid HTTP header name (not starting with `AGENTFILE_`).
 
 MCP commands run inside the agent container. Agentfile only registers MCP servers, it does not install MCP server binaries.
+
+Note that Claude Code performs its own `${VAR}` expansion on some mcp.json fields after Agentfile renders them, so a value (literal or runtime) whose content contains `${...}` may be further expanded by Claude Code.
 
 ### Environment
 
@@ -283,11 +291,48 @@ spec:
   envs:
     - name: LOG_LEVEL
       value: info
+    - name: GITHUB_TOKEN
+      runtimeEnv:
+        name: GITHUB_TOKEN
 ```
 
-Each environment entry requires `name` and `value`.  
-`name` must match `[A-Za-z_][A-Za-z0-9_]*`.  
-Runtime environment variables take precedence over `spec.envs`.
+Each entry requires `name` and exactly one value source:
+
+- `value` — a literal, baked into the image at build time.
+- `runtimeEnv` — read from the container environment at run time. See [Runtime Variables](#runtime-variables).
+
+`name` must match `[A-Za-z_][A-Za-z0-9_]*` and must not start with the reserved prefix `AGENTFILE_`.
+
+Literal values are defaults: a `value` entry is applied only when the variable isn't already set in the container, so an environment variable of the same name passed at run time overrides the baked-in literal.
+
+### Runtime Variables
+
+A `runtimeEnv` entry declares that a value is unknown at build time and is read from a container environment variable at run time. Runtime values never appear in the image, which makes `runtimeEnv` the right choice for secrets.
+
+`runtimeEnv.name` is the environment variable to read. It must match `[A-Za-z_][A-Za-z0-9_]*` and must not start with the reserved prefix `AGENTFILE_`.
+
+Runtime variables work in the following name/value entries: `spec.envs[]`, `spec.mcps[].stdio.envs[]`, `spec.mcps[].http.headers[]`.
+
+```yaml
+spec:
+  envs:
+    - name: GH_TOKEN
+      runtimeEnv:
+        name: GITHUB_TOKEN
+  mcps:
+    - name: search
+      http:
+        url: https://example.com/mcp
+        headers:
+          - name: Authorization
+            runtimeEnv:
+              name: SEARCH_MCP_AUTH
+```
+
+Runtime variables are required at runtime: the container fails at start when a runtime variable isn't provided.  
+Empty is a value: a variable set to the empty string is used verbatim; only an unset variable is considered not provided.  
+
+`af run` automatically forwards declared runtime variables from the host environment, see [Run](#run).
 
 ### Workspace
 
@@ -486,8 +531,7 @@ The run command requires an effective prompt.
 `--env-file FILE` loads environment variables from an `.env` file.
 `--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result.
 
-The following environment variables are passed through from the host environment to the container automatically:
-- Current LLM provider default credentials. As described in [llm section](#llm)
+Every variable referenced by a `runtimeEnv` field in the spec is set automatically when present on host. See [Runtime Variables](#runtime-variables) for details.
 
 When the run command receives piped input on stdin, that input is forwarded to the agent, so you can stream data to it:
 
@@ -586,8 +630,8 @@ Use a bind mount for workspace input and output:
 docker run --rm -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:latest
 ```
 
-When run directly with Docker, the image uses the spec built into the image.
-
 ## Security
 
 Agentfile agents are unattended processes and cannot interactively ask for approvals. They also assumed to run in conatiners which provide a natural isolation boundary. Therefore the harness runs with permission and approval gates disabled by default, the agent can read, write, and execute freely inside its container without asking. Additional isolation can be added at deploy-time using container runtime security features.
+
+Secrets should use `runtimeEnv` and be provided at run time. See [Runtime Variables](#runtime-variables).

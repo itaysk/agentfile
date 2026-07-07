@@ -183,6 +183,29 @@ func TestRunRejectsInvalidWorkspaceHostPathBeforeDocker(t *testing.T) {
 	}
 }
 
+func TestRunEnvForwardsRuntimeEnvNames(t *testing.T) {
+	project := runnerTestProject(t)
+	project.AgentFile.Spec.Envs = []agentfile.Env{
+		{Name: "GH_TOKEN", ValueSource: agentfile.ValueSource{RuntimeEnv: &agentfile.RuntimeEnvSource{Name: "GITHUB_TOKEN"}}},
+		{Name: "OTHER", ValueSource: agentfile.ValueSource{RuntimeEnv: &agentfile.RuntimeEnvSource{Name: "MISSING_ON_HOST"}}},
+	}
+	t.Setenv("GITHUB_TOKEN", "from-host")
+	os.Unsetenv("MISSING_ON_HOST")
+
+	envs := runEnv(project.AgentFile, map[string]string{})
+	if got := envs["GITHUB_TOKEN"]; got != "from-host" {
+		t.Fatalf("GITHUB_TOKEN = %q, want from-host", got)
+	}
+	if _, ok := envs["MISSING_ON_HOST"]; ok {
+		t.Fatalf("MISSING_ON_HOST forwarded despite being unset on host")
+	}
+
+	envs = runEnv(project.AgentFile, map[string]string{"GITHUB_TOKEN": "explicit"})
+	if got := envs["GITHUB_TOKEN"]; got != "explicit" {
+		t.Fatalf("GITHUB_TOKEN = %q, want explicit --env to win", got)
+	}
+}
+
 func installFakeDocker(t *testing.T) (string, string) {
 	t.Helper()
 	binDir := t.TempDir()
