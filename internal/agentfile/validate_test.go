@@ -77,6 +77,28 @@ func TestHeaderValidateValueRuntimeEnvOneOf(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsBareTrueWithSkills(t *testing.T) {
+	spec := Spec{
+		Harness: Harness{ClaudeCode: &ClaudeCodeHarness{Bare: true}},
+		LLM:     LLM{Anthropic: &ModelProvider{Model: "claude-haiku-4-5"}},
+		Skills:  []Source{{FS: &FilesystemSource{Path: "skills/greet"}}},
+	}
+	err := spec.Validate()
+	if err == nil || !strings.Contains(err.Error(), "bare cannot be true with spec.skills") {
+		t.Fatalf("Validate = %v, want bare/skills conflict error", err)
+	}
+	spec.Skills = nil
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("Validate without skills = %v, want nil", err)
+	}
+
+	spec.Envs = []Env{{Name: "CLAUDE_CODE_OAUTH_TOKEN", ValueSource: runtime("CLAUDE_CODE_OAUTH_TOKEN")}}
+	err = spec.Validate()
+	if err == nil || !strings.Contains(err.Error(), "CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Fatalf("Validate = %v, want bare/subscription-token conflict error", err)
+	}
+}
+
 func TestSpecRuntimeEnvNames(t *testing.T) {
 	spec := Spec{
 		Envs: []Env{

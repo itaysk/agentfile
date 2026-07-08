@@ -62,7 +62,7 @@ Generated homes may contain config, copied skills, and other Agentfile-owned run
 
 | Provider | Claude Code | Codex | Pi |
 | --- | --- | --- | --- |
-| `anthropic` | Use `--model`; credentials from `ANTHROPIC_API_KEY` or Claude Code auth. | Unsupported. | Use `--provider anthropic --model`; credentials from `ANTHROPIC_API_KEY`. |
+| `anthropic` | Use `--model`; credentials from `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (requires non-[bare mode](#bare-mode)). | Unsupported. | Use `--provider anthropic --model`; credentials from `ANTHROPIC_API_KEY`. |
 | `openai` | Unsupported. | Use `--model`; derive `CODEX_API_KEY` from `OPENAI_API_KEY` when unset. | Use `--provider openai --model`; credentials from `OPENAI_API_KEY`. |
 | `openrouter` | Unsupported. | Unsupported. | Use `--provider openrouter --model`; credentials from `OPENROUTER_API_KEY`. |
 
@@ -204,9 +204,29 @@ claude \
   "$AGENTFILE_PROMPT"
 ```
 
-Use `--bare` when there are no agentfile skills.  
-Bare mode minimizes claude's footprint and startup time by disabling auto-discovery for hooks, skills, plugins, MCP servers, memory, and `CLAUDE.md`. It also automatically sets `CLAUDE_CODE_SIMPLE=1` which simplifies the system prompt.  
 Flags passed explicitly still apply, and all of the necessary features can be configured with explicit flags except skills.
+
+#### Bare mode
+
+Bare mode (claude's `--bare` flag) minimizes claude's footprint and startup time by disabling auto-discovery for hooks, skills, plugins, MCP servers, memory, and `CLAUDE.md`. It also automatically sets `CLAUDE_CODE_SIMPLE=1` which simplifies the system prompt.
+
+You can control bare mode with `spec.harness.claudecode.bare` which is a boolean flag.
+
+Bare mode is off by default and used only when `bare: true` is set.
+
+Bare mode does not load skills (see below). `bare: true` with skills is rejected (validation error).
+
+Bare mode does not read `CLAUDE_CODE_OAUTH_TOKEN`. Do not set `bare: true` when the agent authenticates with a Claude subscription token. `bare: true` with a `spec.envs` entry named `CLAUDE_CODE_OAUTH_TOKEN` is rejected (validation error); a token supplied only at run time cannot be validated.
+
+##### Bare mode and Skills
+
+Verified empirically against Claude Code 2.1.204 (by capturing the API request bodies claude sends under each flag combination):
+
+- In bare mode, skill discovery ignores `~/.claude/skills` entirely — skills staged in the generated home are invisible (`/skill-name` returns "Unknown command").
+- `--add-dir <dir>` does make bare mode discover skills, but only from `<dir>/.claude/skills` (so `--add-dir /agent/agentfile/claudecode/home` would re-expose the staged skills; pointing `--add-dir` at a skills directory itself does nothing).
+- Discovered or not, bare mode never advertises skills to the model: the request's tool list is only `Bash`, `Edit`, `Read` — no `Skill` tool — and skill names/descriptions appear nowhere in the request.
+
+Rejected feature request: https://github.com/anthropics/claude-code/issues/37207
 
 ### Codex
 

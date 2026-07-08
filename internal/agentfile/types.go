@@ -35,10 +35,18 @@ type Spec struct {
 }
 
 type Harness struct {
-	Image      string       `yaml:"image,omitempty" json:"image,omitempty"`
-	ClaudeCode *EmptyObject `yaml:"claudecode,omitempty" json:"claudecode,omitempty"`
-	Codex      *EmptyObject `yaml:"codex,omitempty" json:"codex,omitempty"`
-	Pi         *EmptyObject `yaml:"pi,omitempty" json:"pi,omitempty"`
+	Image      string             `yaml:"image,omitempty" json:"image,omitempty"`
+	ClaudeCode *ClaudeCodeHarness `yaml:"claudecode,omitempty" json:"claudecode,omitempty"`
+	Codex      *EmptyObject       `yaml:"codex,omitempty" json:"codex,omitempty"`
+	Pi         *EmptyObject       `yaml:"pi,omitempty" json:"pi,omitempty"`
+}
+
+// ClaudeCodeHarness configures the Claude Code harness. Bare opts into
+// claude's --bare mode (off by default). It is invalid alongside skills,
+// which bare mode does not load, and incompatible with subscription auth,
+// because bare mode does not read CLAUDE_CODE_OAUTH_TOKEN.
+type ClaudeCodeHarness struct {
+	Bare bool `yaml:"bare,omitempty" json:"bare,omitempty"`
 }
 
 type EmptyObject struct{}

@@ -10,7 +10,9 @@ An implementation must do the behavior described here. Nothing else is part of A
 - [Agentfile](#agentfile)
 - [Agent Specification](#agent-specification)
   - [Harness](#harness)
+    - [Claude Code](#claude-code)
   - [LLM](#llm)
+    - [Subscription plans](#subscription-plans)
   - [Prompt](#prompt)
   - [System Prompt](#system-prompt)
   - [Skills](#skills)
@@ -148,6 +150,21 @@ Images are built from Dockerfiles in [/images](/images).
 
 Agentfile does not install tools declared elsewhere. Add tools to the base image.
 
+#### Claude Code
+
+The `claudecode` harness accepts an optional `bare` field:
+
+```yaml
+spec:
+  harness:
+    claudecode:
+      bare: true
+```
+
+`bare` opts into claude's bare mode, which minimizes claude's footprint and startup time.  
+`bare: true` cannot be combined with `spec.skills` or with Claude subscription auth (`CLAUDE_CODE_OAUTH_TOKEN`).
+For more information, see [Bare mode](./harness.md#bare-mode) in the Harness reference.
+
 ### LLM
 
 Use `spec.llm` to configure the model provider and model used by the harness.  
@@ -188,6 +205,12 @@ Well-known harness/LLM provider environment variables:
 | `anthropic` | `ANTHROPIC_API_KEY` |
 | `openai` | `OPENAI_API_KEY` |
 | `openrouter` | `OPENROUTER_API_KEY` |
+
+#### Subscription plans
+
+`CLAUDE_CODE_OAUTH_TOKEN` bills usage to a Claude subscription plan instead of an API key. Generate it with `claude setup-token`.  
+[Bare mode](./harness.md#bare-mode) does not support Claude subscription auth, so the agent must not set `spec.harness.claudecode.bare: true`.  
+If both `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` are set, `ANTHROPIC_API_KEY` takes precedence.
 
 ### Prompt
 

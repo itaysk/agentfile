@@ -47,7 +47,7 @@ func TestHarnessCLIsWithMockLLM(t *testing.T) {
 		{
 			name:       "claudecode",
 			dockerfile: "claudecode.Dockerfile",
-			harness:    agentfile.Harness{ClaudeCode: &agentfile.EmptyObject{}},
+			harness:    agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{}},
 			llm:        agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}},
 			model:      "claude-haiku-4-5",
 			credential: "ANTHROPIC_API_KEY",

@@ -39,7 +39,7 @@ func TestRuntimeEnvEndToEnd(t *testing.T) {
 			Kind:       agentfile.Kind,
 			Metadata:   agentfile.Metadata{Name: "runtime-env-test", Version: &version},
 			Spec: agentfile.Spec{
-				Harness: agentfile.Harness{Image: runtimeTestBaseImage, ClaudeCode: &agentfile.EmptyObject{}},
+				Harness: agentfile.Harness{Image: runtimeTestBaseImage, ClaudeCode: &agentfile.ClaudeCodeHarness{}},
 				LLM:     agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}},
 				Prompt:  &prompt,
 				Envs:    []agentfile.Env{{Name: "GH_TOKEN", ValueSource: agentfile.ValueSource{RuntimeEnv: &agentfile.RuntimeEnvSource{Name: "GITHUB_TOKEN"}}}},

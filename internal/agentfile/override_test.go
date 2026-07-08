@@ -13,6 +13,28 @@ func TestApplyOverrideSupportsGenericScalarPaths(t *testing.T) {
 	}
 }
 
+func TestApplyOverrideSupportsBoolFields(t *testing.T) {
+	project := testProject()
+
+	if err := project.ApplyOverride("harness.claudecode.bare", "true"); err != nil {
+		t.Fatalf("ApplyOverride returned error: %v", err)
+	}
+	if !project.AgentFile.Spec.Harness.ClaudeCode.Bare {
+		t.Fatalf("harness.claudecode.bare = false, want true")
+	}
+}
+
+func TestApplyOverrideKeepsStringFieldsVerbatim(t *testing.T) {
+	project := testProject()
+
+	if err := project.ApplyOverride("prompt", "true"); err != nil {
+		t.Fatalf("ApplyOverride returned error: %v", err)
+	}
+	if got := project.AgentFile.Spec.Prompt.Text; got == nil || *got != "true" {
+		t.Fatalf("prompt text = %v, want the string \"true\"", got)
+	}
+}
+
 func TestApplyOverrideRejectsListPaths(t *testing.T) {
 	project := testProject()
 	value := "info"
@@ -52,7 +74,7 @@ func testProject() *Project {
 				Version: &version,
 			},
 			Spec: Spec{
-				Harness: Harness{ClaudeCode: &EmptyObject{}},
+				Harness: Harness{ClaudeCode: &ClaudeCodeHarness{}},
 				LLM:     LLM{Anthropic: &ModelProvider{Model: "claude-haiku-4-5"}},
 			},
 		},

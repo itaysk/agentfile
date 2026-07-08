@@ -205,7 +205,7 @@ func TestStageContextWritesClaudeMCPAndBareMode(t *testing.T) {
 				Version: &version,
 			},
 			Spec: agentfile.Spec{
-				Harness: agentfile.Harness{ClaudeCode: &agentfile.EmptyObject{}},
+				Harness: agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{Bare: true}},
 				LLM:     agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}},
 				MCPs: []agentfile.MCP{
 					{
@@ -277,6 +277,31 @@ func TestShellQuotePreservesSingleQuotesAndTrailingNewlines(t *testing.T) {
 	}
 	if string(output) != value {
 		t.Fatalf("quoted shell value = %q, want %q", string(output), value)
+	}
+}
+
+func TestClaudeEntrypointBare(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		bare     bool
+		wantBare bool
+	}{
+		{name: "off by default", wantBare: false},
+		{name: "explicit true", bare: true, wantBare: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			af := agentfile.AgentFile{
+				Spec: agentfile.Spec{
+					Harness: agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{Bare: tt.bare}},
+					LLM:     agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}},
+				},
+			}
+			assets := &agentfile.ResolvedAssets{Prompt: "say hi", HasPrompt: true}
+			script := entrypointScript(af, assets, nil)
+			if got := strings.Contains(script, "--bare"); got != tt.wantBare {
+				t.Fatalf("entrypoint --bare = %v, want %v\nscript:\n%s", got, tt.wantBare, script)
+			}
+		})
 	}
 }
 

@@ -59,9 +59,32 @@ func (p *Project) ApplyOverride(path, value string) error {
 // populated struct overlays field-wise (untouched fields keep their values),
 // allocates pointers along the path, rejects unknown fields (KnownFields), and
 // rejects list paths (a mapping cannot decode into a slice).
+//
+// The value is decoded as a string first, so string fields take any value
+// verbatim (prompt=true stays the text "true"). Typed fields reject that
+// quoted form, so on failure retry with the value parsed as a YAML scalar —
+// this is what lets bool fields work (harness.claudecode.bare=false).
 func overlayField(spec *Spec, path, value string) error {
+	err := overlayValue(spec, path, value)
+	if err == nil {
+		return nil
+	}
+	var scalar any
+	if yaml.Unmarshal([]byte(value), &scalar) != nil {
+		return err
+	}
+	if _, isString := scalar.(string); isString || scalar == nil {
+		return err
+	}
+	if overlayValue(spec, path, scalar) != nil {
+		return err
+	}
+	return nil
+}
+
+func overlayValue(spec *Spec, path string, leaf any) error {
 	parts := strings.Split(path, ".")
-	var node any = value
+	node := leaf
 	for i := len(parts) - 1; i >= 0; i-- {
 		if parts[i] == "" {
 			return fmt.Errorf("empty path segment")

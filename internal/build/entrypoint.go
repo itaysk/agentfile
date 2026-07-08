@@ -142,7 +142,7 @@ func claudeCodeEntrypoint(af agentfile.AgentFile, assets *agentfile.ResolvedAsse
 		"--no-session-persistence",
 		"--dangerously-skip-permissions",
 	}
-	if len(assets.Skills) == 0 {
+	if af.Spec.Harness.ClaudeCode != nil && af.Spec.Harness.ClaudeCode.Bare {
 		args = append(args, "--bare")
 	}
 	if assets.HasSystemPrompt {

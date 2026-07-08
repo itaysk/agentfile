@@ -47,6 +47,16 @@ func (s Spec) Validate() error {
 	if s.Harness.Image == "" && s.Harness.BaseImage() == "" {
 		return fmt.Errorf("spec.harness has no supported selector")
 	}
+	if c := s.Harness.ClaudeCode; c != nil && c.Bare {
+		if len(s.Skills) > 0 {
+			return fmt.Errorf("spec.harness.claudecode.bare cannot be true with spec.skills: bare mode does not load skills")
+		}
+		for _, env := range s.Envs {
+			if env.Name == "CLAUDE_CODE_OAUTH_TOKEN" {
+				return fmt.Errorf("spec.harness.claudecode.bare cannot be true with env CLAUDE_CODE_OAUTH_TOKEN: bare mode does not read subscription tokens")
+			}
+		}
+	}
 	if s.LLM.ProviderCount() != 1 {
 		return fmt.Errorf("spec.llm must set exactly one of anthropic, openai, or openrouter")
 	}
