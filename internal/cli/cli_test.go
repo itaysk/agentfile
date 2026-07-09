@@ -35,6 +35,45 @@ func TestBuildRejectsPositionalArguments(t *testing.T) {
 	}
 }
 
+func TestRunErrorPrefixesOnce(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"run", []string{"run", "--bad"}, "unknown run argument"},
+		{"agents", []string{"agents", "bad"}, "unknown agents command"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			code := Run(tt.args, &stdout, &stderr)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1", code)
+			}
+			if got := strings.Count(stderr.String(), "af:"); got != 1 {
+				t.Fatalf("stderr = %q, want one af prefix", stderr.String())
+			}
+			if !strings.Contains(stderr.String(), tt.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.want)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+		})
+	}
+}
+
+func TestParseBuildFlagsSupportsShortFileEquals(t *testing.T) {
+	options := buildFlags{}
+	if err := parseBuildFlags([]string{"-f=agentfile.yaml"}, &options); err != nil {
+		t.Fatalf("parseBuildFlags returned error: %v", err)
+	}
+	if options.file != "agentfile.yaml" {
+		t.Fatalf("file = %q, want agentfile.yaml", options.file)
+	}
+}
+
 func TestParseRunFlagsSupportsPromptOverrideAlias(t *testing.T) {
 	options := runFlags{env: map[string]string{}}
 	if err := parseRunFlags([]string{"cc", "--prompt", "say hi"}, &options); err != nil {

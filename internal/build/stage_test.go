@@ -117,7 +117,6 @@ func TestStageContextWritesCodexRuntimeLayout(t *testing.T) {
 	contextDir := t.TempDir()
 	skillDir := t.TempDir()
 	writeBuildTestFile(t, filepath.Join(skillDir, "SKILL.md"), "---\nname: helper\n---\nbody\n")
-	version := agentfile.DefaultVersion
 	envValue := "info"
 	project := &agentfile.Project{
 		ProjectDir: t.TempDir(),
@@ -126,7 +125,7 @@ func TestStageContextWritesCodexRuntimeLayout(t *testing.T) {
 			Kind:       agentfile.Kind,
 			Metadata: agentfile.Metadata{
 				Name:    "codex-agent",
-				Version: &version,
+				Version: agentfile.DefaultVersion,
 			},
 			Spec: agentfile.Spec{
 				Harness: agentfile.Harness{Codex: &agentfile.EmptyObject{}},
@@ -197,7 +196,6 @@ func TestStageContextWritesCodexRuntimeLayout(t *testing.T) {
 
 func TestStageContextWritesClaudeMCPAndBareMode(t *testing.T) {
 	contextDir := t.TempDir()
-	version := agentfile.DefaultVersion
 	headerValue := "Bearer token"
 	project := &agentfile.Project{
 		ProjectDir: t.TempDir(),
@@ -206,7 +204,7 @@ func TestStageContextWritesClaudeMCPAndBareMode(t *testing.T) {
 			Kind:       agentfile.Kind,
 			Metadata: agentfile.Metadata{
 				Name:    "claude-agent",
-				Version: &version,
+				Version: agentfile.DefaultVersion,
 			},
 			Spec: agentfile.Spec{
 				Harness: agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{Bare: true}},
@@ -245,7 +243,6 @@ func TestStageContextWritesClaudeMCPAndBareMode(t *testing.T) {
 
 func TestStageContextWritesPiRuntimeLayout(t *testing.T) {
 	contextDir := t.TempDir()
-	version := agentfile.DefaultVersion
 	project := &agentfile.Project{
 		ProjectDir: t.TempDir(),
 		AgentFile: agentfile.AgentFile{
@@ -253,7 +250,7 @@ func TestStageContextWritesPiRuntimeLayout(t *testing.T) {
 			Kind:       agentfile.Kind,
 			Metadata: agentfile.Metadata{
 				Name:    "pi-agent",
-				Version: &version,
+				Version: agentfile.DefaultVersion,
 			},
 			Spec: agentfile.Spec{
 				Harness: agentfile.Harness{Pi: &agentfile.EmptyObject{}},

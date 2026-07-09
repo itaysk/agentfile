@@ -2,7 +2,7 @@ apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
   name: ""
-  version: ""
+  version: "" # defaults to latest
 spec:
   harness:
     image: ""

@@ -28,22 +28,25 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	code := 0
 	var err error
 	switch args[0] {
 	case "build":
 		err = runBuild(args[1:], stdout, stderr)
 	case "run":
-		return runRun(args[1:], stdout, stderr)
+		code, err = runRun(args[1:], stdout, stderr)
 	case "agents":
-		return runAgents(args[1:], stdout, stderr)
+		code, err = runAgents(args[1:], stdout, stderr)
 	default:
-		err = fmt.Errorf("unknown command %q", args[0])
+		code, err = 1, fmt.Errorf("unknown command %q", args[0])
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, "af:", err)
-		return 1
+		if code == 0 {
+			return 1
+		}
 	}
-	return 0
+	return code
 }
 
 func runBuild(args []string, stdout, stderr io.Writer) error {
@@ -72,10 +75,10 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func runAgents(args []string, stdout, stderr io.Writer) int {
+func runAgents(args []string, stdout, stderr io.Writer) (int, error) {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		printAgentsHelp(stdout)
-		return 0
+		return 0, nil
 	}
 	if args[0] == "run" {
 		return runRun(args[1:], stdout, stderr)
@@ -92,30 +95,26 @@ func runAgents(args []string, stdout, stderr io.Writer) int {
 		err = fmt.Errorf("unknown agents command %q", args[0])
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, "af:", err)
-		return 1
+		return 1, err
 	}
-	return 0
+	return 0, nil
 }
 
-func runRun(args []string, stdout, stderr io.Writer) int {
+func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	if wantsHelp(args) {
 		fmt.Fprintln(stdout, "usage: af run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]")
-		return 0
+		return 0, nil
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
 	if err := parseRunFlags(args, &options); err != nil {
-		fmt.Fprintln(stderr, "af:", err)
-		return 1
+		return 1, err
 	}
 	project, tag, err := loadRunSelection(options)
 	if err != nil {
-		fmt.Fprintln(stderr, "af:", err)
-		return 1
+		return 1, err
 	}
 	if err := applyMutations(project, options.mutations); err != nil {
-		fmt.Fprintln(stderr, "af:", err)
-		return 1
+		return 1, err
 	}
 	runStderr := io.Discard
 	if options.debug {
@@ -130,11 +129,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		Stdout:    stdout,
 		Stderr:    runStderr,
 	})
-	if err != nil {
-		fmt.Fprintln(stderr, "af:", err)
-		return 1
-	}
-	return exitCode
+	return exitCode, err
 }
 
 func runRegister(args []string, stdout io.Writer) error {
@@ -302,7 +297,7 @@ type fieldMutation struct {
 	value string
 }
 
-// matchStrFlag recognizes "--long value", "short value", and "--long=value".
+// matchStrFlag recognizes "--long value", "short value", "--long=value", and "short=value".
 // matched is false when arg is not this flag; err is non-nil only when a value
 // is required but missing.
 func matchStrFlag(args []string, i int, arg, long, short string) (value string, next int, matched bool, err error) {
@@ -312,6 +307,8 @@ func matchStrFlag(args []string, i int, arg, long, short string) (value string, 
 		return v, n, true, e
 	case strings.HasPrefix(arg, long+"="):
 		return strings.TrimPrefix(arg, long+"="), i, true, nil
+	case short != "" && strings.HasPrefix(arg, short+"="):
+		return strings.TrimPrefix(arg, short+"="), i, true, nil
 	}
 	return "", i, false, nil
 }
@@ -387,26 +384,13 @@ func parseRunFlags(args []string, options *runFlags) error {
 			options.file, options.fileSet, i = value, true, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--workspace", ""); matched {
+		if value, next, matched, err := matchStrFlag(args, i, arg, "--workspace", "--ws"); matched {
 			if err != nil {
 				return err
 			}
 			if value == "" {
-				return fmt.Errorf("--workspace requires a value")
-			}
-			abs, err := filepath.Abs(value)
-			if err != nil {
-				return err
-			}
-			options.workspace, i = abs, next
-			continue
-		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--ws", ""); matched {
-			if err != nil {
-				return err
-			}
-			if value == "" {
-				return fmt.Errorf("--ws requires a value")
+				flag, _, _ := strings.Cut(arg, "=")
+				return fmt.Errorf("%s requires a value", flag)
 			}
 			abs, err := filepath.Abs(value)
 			if err != nil {

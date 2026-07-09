@@ -30,14 +30,13 @@ func TestRuntimeEnvEndToEnd(t *testing.T) {
 	t.Setenv("SEARCH_MCP_AUTH", secret)
 	t.Setenv("GITHUB_TOKEN", secret)
 
-	version := agentfile.DefaultVersion
 	prompt := agentfile.TextSource("say hi")
 	project := &agentfile.Project{
 		ProjectDir: t.TempDir(),
 		AgentFile: agentfile.AgentFile{
 			APIVersion: agentfile.APIVersion,
 			Kind:       agentfile.Kind,
-			Metadata:   agentfile.Metadata{Name: "runtime-env-test", Version: &version},
+			Metadata:   agentfile.Metadata{Name: "runtime-env-test", Version: agentfile.DefaultVersion},
 			Spec: agentfile.Spec{
 				Harness: agentfile.Harness{Image: runtimeTestBaseImage, ClaudeCode: &agentfile.ClaudeCodeHarness{}},
 				LLM:     agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}},

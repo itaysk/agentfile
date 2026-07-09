@@ -27,14 +27,9 @@ spec:
 ```
 ~~~
 
-Check examples against docs using [./sync-examples.py](./sync-examples.py).
+Check examples against docs using [./sync-examples.py](./sync-examples.py) or via the Makefile:
 
 ```bash
-python3 docs/sync-examples.py
-```
-
-Sync discrepant examples into the docs with `--write`.
-
-```bash
-python3 docs/sync-examples.py --write
+make sync-examples # only check for discrepacies
+make check-examples # check for discrepacies and sync discrepant examples
 ```

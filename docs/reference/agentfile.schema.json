@@ -32,7 +32,6 @@
         },
         "version": {
           "type": "string",
-          "minLength": 1,
           "default": "latest"
         }
       }

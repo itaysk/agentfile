@@ -20,8 +20,8 @@ type AgentFile struct {
 }
 
 type Metadata struct {
-	Name    string  `yaml:"name" json:"name"`
-	Version *string `yaml:"version,omitempty" json:"version,omitempty"`
+	Name    string `yaml:"name" json:"name"`
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
 }
 
 type Spec struct {

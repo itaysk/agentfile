@@ -160,7 +160,7 @@ spec:
 	}
 }
 
-func TestLoadRejectsExplicitEmptyVersion(t *testing.T) {
+func TestLoadDefaultsExplicitEmptyVersion(t *testing.T) {
 	projectDir := t.TempDir()
 	writeTestFile(t, filepath.Join(projectDir, "agentfile.yaml"), `apiVersion: agentfile.build/v1
 kind: Agent
@@ -175,12 +175,12 @@ spec:
       model: claude-haiku-4-5
 `)
 
-	_, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
-	if err == nil {
-		t.Fatal("Load succeeded, want empty version error")
+	project, err := Load(filepath.Join(projectDir, "agentfile.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "metadata.version") {
-		t.Fatalf("error = %q, want metadata.version detail", err)
+	if got := project.AgentFile.Metadata.Version; got != DefaultVersion {
+		t.Fatalf("metadata.version = %q, want %q", got, DefaultVersion)
 	}
 }
 

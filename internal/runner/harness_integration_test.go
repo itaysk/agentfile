@@ -199,7 +199,6 @@ func assertProviderShape(t *testing.T, path string, body map[string]any) {
 func integrationProject(t *testing.T, name, image string, harness agentfile.Harness, llm agentfile.LLM, promptText string) *agentfile.Project {
 	t.Helper()
 	projectDir := t.TempDir()
-	version := agentfile.DefaultVersion
 	prompt := agentfile.TextSource(promptText)
 	harness.Image = image
 	return &agentfile.Project{
@@ -210,7 +209,7 @@ func integrationProject(t *testing.T, name, image string, harness agentfile.Harn
 			Kind:       agentfile.Kind,
 			Metadata: agentfile.Metadata{
 				Name:    "integration-" + name,
-				Version: &version,
+				Version: agentfile.DefaultVersion,
 			},
 			Spec: agentfile.Spec{
 				Harness: harness,

@@ -28,11 +28,8 @@ func (af AgentFile) Validate() error {
 	if strings.TrimSpace(af.Metadata.Name) == "" {
 		return fmt.Errorf("metadata.name is required")
 	}
-	if af.Metadata.Version == nil {
+	if af.Metadata.Version == "" {
 		return fmt.Errorf("metadata.version is required after defaults are applied")
-	}
-	if *af.Metadata.Version == "" {
-		return fmt.Errorf("metadata.version must be non-empty when present")
 	}
 	if err := af.Spec.Validate(); err != nil {
 		return err

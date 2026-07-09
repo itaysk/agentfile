@@ -64,14 +64,13 @@ func TestApplyOverridePromptReplacesSourceWithText(t *testing.T) {
 }
 
 func testProject() *Project {
-	version := DefaultVersion
 	return &Project{
 		AgentFile: AgentFile{
 			APIVersion: APIVersion,
 			Kind:       Kind,
 			Metadata: Metadata{
 				Name:    "hello",
-				Version: &version,
+				Version: DefaultVersion,
 			},
 			Spec: Spec{
 				Harness: Harness{ClaudeCode: &ClaudeCodeHarness{}},

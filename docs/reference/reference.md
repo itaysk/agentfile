@@ -80,8 +80,7 @@ spec:
 `apiVersion` must be `agentfile.build/v1`.  
 `kind` must be `Agent`.  
 `metadata.name` must be a non-empty string.  
-`metadata.version` is optional. If present, it must be a non-empty string. Its
-default is `latest`.
+`metadata.version` is optional. If omitted or empty, it defaults to `latest`.
 
 Example:
 

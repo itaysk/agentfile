@@ -251,7 +251,6 @@ func dockerRunArgs(t *testing.T, logPath string) string {
 func runnerTestProject(t *testing.T) *agentfile.Project {
 	t.Helper()
 	projectDir := t.TempDir()
-	version := agentfile.DefaultVersion
 	prompt := agentfile.TextSource("say hi")
 	return &agentfile.Project{
 		ProjectDir:    projectDir,
@@ -261,7 +260,7 @@ func runnerTestProject(t *testing.T) *agentfile.Project {
 			Kind:       agentfile.Kind,
 			Metadata: agentfile.Metadata{
 				Name:    "test-agent",
-				Version: &version,
+				Version: agentfile.DefaultVersion,
 			},
 			Spec: agentfile.Spec{
 				Harness: agentfile.Harness{Codex: &agentfile.EmptyObject{}},

@@ -10,10 +10,10 @@ integration-test:
 	AF_INTEGRATION=1 go test -count=1 ./...
 
 sync-examples:
-	python3 docs/sync-examples.py --write
+	python3 -B docs/sync-examples.py --write
 
 check-examples:
-	python3 docs/sync-examples.py
+	python3 -B docs/sync-examples.py
 
 af: $(GO_SOURCES) go.mod go.sum
 	go build -o $@ ./cmd/af

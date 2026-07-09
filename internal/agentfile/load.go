@@ -35,9 +35,8 @@ func Load(fileName string) (*Project, error) {
 	if err := decoder.Decode(&af); err != nil {
 		return nil, fmt.Errorf("parse agentfile: %w", err)
 	}
-	if af.Metadata.Version == nil {
-		version := DefaultVersion
-		af.Metadata.Version = &version
+	if af.Metadata.Version == "" {
+		af.Metadata.Version = DefaultVersion
 	}
 
 	project := &Project{
@@ -121,9 +120,5 @@ func cleanRelativePath(path string) string {
 }
 
 func (p *Project) DefaultImageTag() string {
-	version := DefaultVersion
-	if p.AgentFile.Metadata.Version != nil {
-		version = *p.AgentFile.Metadata.Version
-	}
-	return p.AgentFile.Metadata.Name + ":" + version
+	return p.AgentFile.Metadata.Name + ":" + p.AgentFile.Metadata.Version
 }
