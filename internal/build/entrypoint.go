@@ -160,7 +160,11 @@ exec ` + strings.Join(args, " \\\n  ") + "\n"
 func codexEntrypoint() string {
 	return `export HOME=/agent/agentfile/codex/home
 export CODEX_HOME=/agent/agentfile/codex/home/.codex
-if [ -n "${OPENAI_API_KEY:-}" ] && [ -z "${CODEX_API_KEY:-}" ]; then export CODEX_API_KEY="$OPENAI_API_KEY"; fi
+if [ -n "${CODEX_ACCESS_TOKEN:-}" ]; then
+  unset CODEX_API_KEY
+elif [ -n "${OPENAI_API_KEY:-}" ] && [ -z "${CODEX_API_KEY:-}" ]; then
+  export CODEX_API_KEY="$OPENAI_API_KEY"
+fi
 exec codex exec \
   --skip-git-repo-check \
   --dangerously-bypass-approvals-and-sandbox \

@@ -134,6 +134,7 @@ func TestStageContextWritesCodexRuntimeLayout(t *testing.T) {
 				Envs: []agentfile.Env{
 					{Name: "LOG_LEVEL", ValueSource: agentfile.ValueSource{Value: &envValue}},
 					{Name: "GH_TOKEN", ValueSource: agentfile.ValueSource{RuntimeEnv: &agentfile.RuntimeEnvSource{Name: "GITHUB_TOKEN"}}},
+					{Name: "CODEX_ACCESS_TOKEN", ValueSource: agentfile.ValueSource{RuntimeEnv: &agentfile.RuntimeEnvSource{Name: "CODEX_ACCESS_TOKEN"}}},
 				},
 				MCPs: []agentfile.MCP{
 					{
@@ -181,13 +182,16 @@ func TestStageContextWritesCodexRuntimeLayout(t *testing.T) {
 	assertFileContains(t, configPath, `[mcp_servers."time"]`)
 	assertFileContains(t, configPath, `"GITHUB_PERSONAL_ACCESS_TOKEN" = "__AGENTFILE_REF_GITHUB_TOKEN__"`)
 	entrypoint := filepath.Join(contextDir, "entrypoint")
+	assertFileContains(t, entrypoint, `: "${CODEX_ACCESS_TOKEN?agentfile: environment variable CODEX_ACCESS_TOKEN is required}"`)
 	assertFileContains(t, entrypoint, `: "${GITHUB_TOKEN?agentfile: environment variable GITHUB_TOKEN is required}"`)
 	assertFileContains(t, entrypoint, `AGENTFILE_ESC_GITHUB_TOKEN=$(printf '%s' "$GITHUB_TOKEN" | sed 's/\\/\\\\/g; s/"/\\"/g' | sed 's/[\\&,]/\\&/g')`)
 	assertFileContains(t, entrypoint, `sed 's,__AGENTFILE_REF_GITHUB_TOKEN__,'"$AGENTFILE_ESC_GITHUB_TOKEN"',g' '/agent/agentfile/codex/home/.codex/config.toml' > '/agent/agentfile/codex/home/.codex/config.toml.tmp' && mv '/agent/agentfile/codex/home/.codex/config.toml.tmp' '/agent/agentfile/codex/home/.codex/config.toml'`)
 	assertFileContains(t, entrypoint, `if [ -z "${GH_TOKEN+x}" ]; then export GH_TOKEN="${GITHUB_TOKEN}"; fi`)
+	assertFileContains(t, entrypoint, `if [ -z "${CODEX_ACCESS_TOKEN+x}" ]; then export CODEX_ACCESS_TOKEN="${CODEX_ACCESS_TOKEN}"; fi`)
 	assertPathExists(t, filepath.Join(contextDir, "agentfile", "skills", "helper", "SKILL.md"))
 	assertPathExists(t, filepath.Join(contextDir, "agentfile", "codex", "home", ".agents", "skills", "helper", "SKILL.md"))
-	assertFileContains(t, entrypoint, `CODEX_API_KEY="$OPENAI_API_KEY"`)
+	assertFileContains(t, entrypoint, `unset CODEX_API_KEY`)
+	assertFileContains(t, entrypoint, `elif [ -n "${OPENAI_API_KEY:-}" ] && [ -z "${CODEX_API_KEY:-}" ]; then`)
 	assertFileContains(t, entrypoint, `if [ -z "${LOG_LEVEL+x}" ]; then export LOG_LEVEL='info'; fi`)
 }
 

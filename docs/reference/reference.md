@@ -206,11 +206,23 @@ Well-known harness/LLM provider environment variables:
 | `openai` | `OPENAI_API_KEY` |
 | `openrouter` | `OPENROUTER_API_KEY` |
 
-#### Subscription plans
+#### Anthropic/Claude Subscription
 
-`CLAUDE_CODE_OAUTH_TOKEN` bills usage to a Claude subscription plan instead of an API key. Generate it with `claude setup-token`.  
+`CLAUDE_CODE_OAUTH_TOKEN` bills usage to a Claude subscription plan instead of an API key. 
+
+Generate it with `claude setup-token`.
+
 [Bare mode](./harness.md#bare-mode) does not support Claude subscription auth, so the agent must not set `spec.harness.claudecode.bare: true`.  
+
 If both `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` are set, `ANTHROPIC_API_KEY` takes precedence.
+
+### OpenAI/Codex Subscription
+
+`CODEX_ACCESS_TOKEN` uses Codex with ChatGPT-managed subscription or workspace access instead of an API key. 
+
+Business and Enterprise workspaces can create Codex access tokens in ChatGPT.
+
+If `CODEX_ACCESS_TOKEN` is set, it takes precedence over `CODEX_API_KEY` and `OPENAI_API_KEY`.
 
 ### Prompt
 

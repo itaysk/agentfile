@@ -239,7 +239,8 @@ HOME=/agent/agentfile/codex/home
 CODEX_HOME=/agent/agentfile/codex/home/.codex
 ```
 
-If `OPENAI_API_KEY` is set and `CODEX_API_KEY` is unset, the entrypoint must set `CODEX_API_KEY="$OPENAI_API_KEY"` for the Codex process. Do not persist either variable.
+If `CODEX_ACCESS_TOKEN` is unset, `OPENAI_API_KEY` is set, and `CODEX_API_KEY` is unset, the entrypoint must set `CODEX_API_KEY="$OPENAI_API_KEY"` for the Codex process. Do not persist these variables.
+If `CODEX_ACCESS_TOKEN` is set, it takes precedence over `CODEX_API_KEY` and `OPENAI_API_KEY`.
 
 Command:
 
@@ -286,6 +287,8 @@ These upstream harnesses change frequently. When their documented flags or confi
 - Claude Code settings: <https://code.claude.com/docs/en/settings>
 - Claude Code skills: <https://code.claude.com/docs/en/skills>
 - Claude Code MCP: <https://code.claude.com/docs/en/mcp>
+- Codex authentication: <https://developers.openai.com/codex/auth>
+- Codex access tokens: <https://developers.openai.com/codex/enterprise/access-tokens>
 - Codex non-interactive mode: <https://developers.openai.com/codex/noninteractive>
 - Codex configuration: <https://developers.openai.com/codex/config-advanced>
 - Codex skills: <https://developers.openai.com/codex/skills>
