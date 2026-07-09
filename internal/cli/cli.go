@@ -154,9 +154,8 @@ func runRegister(args []string, stdout io.Writer) error {
 		return err
 	}
 	registry.Put(config.Entry{
-		Name:            name,
-		AgentfilePath:   project.AgentfilePath,
-		DefaultImageTag: project.DefaultImageTag(),
+		Name:          name,
+		AgentfilePath: project.AgentfilePath,
 	})
 	if err := config.SaveRegistry(registry); err != nil {
 		return err
@@ -180,7 +179,11 @@ func runList(args []string, stdout io.Writer) error {
 	writer := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(writer, "NAME\tIMAGE\tAGENTFILE")
 	for _, entry := range registry.SortedEntries() {
-		fmt.Fprintf(writer, "%s\t%s\t%s\n", entry.Name, entry.DefaultImageTag, entry.AgentfilePath)
+		project, err := agentfile.Load(entry.AgentfilePath)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\n", entry.Name, project.DefaultImageTag(), entry.AgentfilePath)
 	}
 	return writer.Flush()
 }
@@ -222,7 +225,7 @@ func loadRunSelection(options runFlags) (*agentfile.Project, string, error) {
 			return nil, "", fmt.Errorf("agent %q is not registered", options.name)
 		}
 		project, err := agentfile.Load(entry.AgentfilePath)
-		return project, entry.DefaultImageTag, err
+		return project, "", err
 	}
 	project, err := agentfile.Load(agentfile.DefaultFileName)
 	return project, "", err

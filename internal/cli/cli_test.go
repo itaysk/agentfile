@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/itaysk/agentfile/internal/config"
 )
 
 func TestRunHelpExitsZero(t *testing.T) {
@@ -155,6 +157,39 @@ spec:
 	if !strings.Contains(registerOut.String(), "Registered alias") {
 		t.Fatalf("register stdout = %q, want alias", registerOut.String())
 	}
+	registryPath, err := config.RegistryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryData, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(registryData), "defaultImageTag") {
+		t.Fatalf("registry = %q, want no defaultImageTag", registryData)
+	}
+	writeCLITestFile(t, filepath.Join(projectDir, "agentfile.yaml"), `apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello
+  version: "2"
+spec:
+  harness:
+    codex: {}
+  llm:
+    openai:
+      model: gpt-5-mini
+`)
+	project, tag, err := loadRunSelection(runFlags{name: "alias"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "" {
+		t.Fatalf("registered run tag = %q, want build default", tag)
+	}
+	if got := project.DefaultImageTag(); got != "hello:2" {
+		t.Fatalf("registered run image tag = %q, want hello:2", got)
+	}
 
 	var listOut bytes.Buffer
 	var listErr bytes.Buffer
@@ -162,7 +197,7 @@ spec:
 	if code != 0 {
 		t.Fatalf("list exit code = %d, stderr = %q", code, listErr.String())
 	}
-	if !strings.Contains(listOut.String(), "alias") || !strings.Contains(listOut.String(), "hello:latest") {
+	if !strings.Contains(listOut.String(), "alias") || !strings.Contains(listOut.String(), "hello:2") {
 		t.Fatalf("list stdout = %q, want registered alias and tag", listOut.String())
 	}
 }

@@ -15,9 +15,8 @@ type Registry struct {
 }
 
 type Entry struct {
-	Name            string `json:"name"`
-	AgentfilePath   string `json:"agentfilePath"`
-	DefaultImageTag string `json:"defaultImageTag"`
+	Name          string `json:"name"`
+	AgentfilePath string `json:"agentfilePath"`
 }
 
 func Dir() (string, error) {

@@ -603,8 +603,7 @@ The registry JSON uses a wrapped object shape:
   "agents": {
     "hello": {
       "name": "hello",
-      "agentfilePath": "/path/to/project/agentfile.yaml",
-      "defaultImageTag": "hello:latest"
+      "agentfilePath": "/path/to/project/agentfile.yaml"
     }
   }
 }
@@ -614,7 +613,8 @@ A registry entry stores:
 
 1. name
 2. agentfile path
-3. default image tag
+
+Image tags are derived from the current registered agentfile metadata when needed.
 
 #### Register
 
