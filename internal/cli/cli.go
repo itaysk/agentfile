@@ -102,61 +102,76 @@ func runAgents(args []string, stdout, stderr io.Writer) (int, error) {
 
 func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]")
+		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]")
 		return 0, nil
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
 	if err := parseRunFlags(args, &options); err != nil {
 		return 1, err
 	}
-	project, tag, err := loadRunSelection(options)
-	if err != nil {
-		return 1, err
-	}
-	if err := applyMutations(project, options.mutations); err != nil {
-		return 1, err
-	}
 	runStderr := io.Discard
 	if options.debug {
 		runStderr = stderr
 	}
+	// Pull progress goes to real stderr even without --debug: a first pull can
+	// take minutes and stdout stays clean either way.
+	project, image, runtimeEnvNames, err := loadRunSelection(options, stderr)
+	if err != nil {
+		return 1, err
+	}
+	if project != nil {
+		if err := applyMutations(project, options.mutations); err != nil {
+			return 1, err
+		}
+	}
 	exitCode, err := runner.Run(context.Background(), runner.Options{
-		Project:   project,
-		Tag:       tag,
-		Env:       options.env,
-		EnvFiles:  options.envFiles,
-		Workspace: options.workspace,
-		Stdout:    stdout,
-		Stderr:    runStderr,
+		Project:         project,
+		Image:           image,
+		RuntimeEnvNames: runtimeEnvNames,
+		Env:             options.env,
+		EnvFiles:        options.envFiles,
+		Workspace:       options.workspace,
+		Stdout:          stdout,
+		Stderr:          runStderr,
 	})
 	return exitCode, err
 }
 
 func runRegister(args []string, stdout io.Writer) error {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af agents register [NAME] [--file agentfile.yaml]")
+		fmt.Fprintln(stdout, "usage: af agents register [NAME] [--file agentfile.yaml | --image REF]")
 		return nil
 	}
 	options := registerFlags{file: agentfile.DefaultFileName}
 	if err := parseRegisterFlags(args, &options); err != nil {
 		return err
 	}
-	project, err := agentfile.Load(options.file)
-	if err != nil {
-		return err
-	}
 	name := options.name
-	if name == "" {
-		name = project.AgentFile.Metadata.Name
+	entry := config.Entry{Image: options.image}
+	if options.image != "" {
+		info, err := runner.ReadImageInfo(context.Background(), "", options.image)
+		if err != nil {
+			return fmt.Errorf("%w (docker pull the image first if it is not local)", err)
+		}
+		if name == "" {
+			name = info.Metadata.Name
+		}
+	} else {
+		project, err := agentfile.Load(options.file)
+		if err != nil {
+			return err
+		}
+		if name == "" {
+			name = project.AgentFile.Metadata.Name
+		}
+		entry.AgentfilePath = project.AgentfilePath
 	}
+	entry.Name = name
 	registry, err := config.LoadRegistry()
 	if err != nil {
 		return err
 	}
-	registry.Put(config.Entry{
-		Name:          name,
-		AgentfilePath: project.AgentfilePath,
-	})
+	registry.Put(entry)
 	if err := config.SaveRegistry(registry); err != nil {
 		return err
 	}
@@ -179,6 +194,10 @@ func runList(args []string, stdout io.Writer) error {
 	writer := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(writer, "NAME\tIMAGE\tAGENTFILE")
 	for _, entry := range registry.SortedEntries() {
+		if entry.Image != "" {
+			fmt.Fprintf(writer, "%s\t%s\t-\n", entry.Name, entry.Image)
+			continue
+		}
 		project, err := agentfile.Load(entry.AgentfilePath)
 		if err != nil {
 			return err
@@ -210,25 +229,53 @@ func runRemove(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func loadRunSelection(options runFlags) (*agentfile.Project, string, error) {
+func loadRunSelection(options runFlags, stderr io.Writer) (*agentfile.Project, string, []string, error) {
+	if options.image != "" {
+		if len(options.mutations) > 0 {
+			return nil, "", nil, fmt.Errorf("field overrides require an agentfile source")
+		}
+		image, runtimeEnvNames, err := loadRunImage(options.image, stderr)
+		return nil, image, runtimeEnvNames, err
+	}
 	if options.fileSet {
 		project, err := agentfile.Load(options.file)
-		return project, "", err
+		return project, "", nil, err
 	}
 	if options.name != "" {
 		registry, err := config.LoadRegistry()
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 		entry, ok := registry.Agents[options.name]
 		if !ok {
-			return nil, "", fmt.Errorf("agent %q is not registered", options.name)
+			return nil, "", nil, fmt.Errorf("agent %q is not registered", options.name)
+		}
+		if entry.Image != "" {
+			if len(options.mutations) > 0 {
+				return nil, "", nil, fmt.Errorf("field overrides require an agentfile source")
+			}
+			image, runtimeEnvNames, err := loadRunImage(entry.Image, stderr)
+			return nil, image, runtimeEnvNames, err
 		}
 		project, err := agentfile.Load(entry.AgentfilePath)
-		return project, "", err
+		return project, "", nil, err
 	}
 	project, err := agentfile.Load(agentfile.DefaultFileName)
-	return project, "", err
+	return project, "", nil, err
+}
+
+func loadRunImage(image string, stderr io.Writer) (string, []string, error) {
+	ctx := context.Background()
+	info, err := runner.ReadImageInfo(ctx, "", image)
+	if err != nil {
+		if err := runner.PullImage(ctx, "", image, stderr); err != nil {
+			return "", nil, err
+		}
+		if info, err = runner.ReadImageInfo(ctx, "", image); err != nil {
+			return "", nil, err
+		}
+	}
+	return image, info.RuntimeEnvNames, nil
 }
 
 func applyMutations(project *agentfile.Project, mutations []fieldMutation) error {
@@ -248,7 +295,7 @@ Commands:
   run                run an agent (alias for af agents run)
   agents list        list registered agents
   agents run         run an agent
-  agents register    register an agent
+  agents register    register an agent or image
   agents remove      remove a registered agent
   version            print the af version
 
@@ -260,7 +307,7 @@ func printAgentsHelp(w io.Writer) {
 
 Commands:
   run [NAME]         run a registered or local agent
-  register [NAME]    register an agent
+  register [NAME]    register an agent or image
   list               list registered agents
   remove NAME        remove a registered agent`)
 }
@@ -280,14 +327,17 @@ type buildFlags struct {
 }
 
 type registerFlags struct {
-	file string
-	name string
+	file    string
+	fileSet bool
+	image   string
+	name    string
 }
 
 type runFlags struct {
 	name      string
 	file      string
 	fileSet   bool
+	image     string
 	env       map[string]string
 	envFiles  []string
 	workspace string
@@ -363,7 +413,18 @@ func parseRegisterFlags(args []string, options *registerFlags) error {
 			if err != nil {
 				return err
 			}
-			options.file, i = value, next
+			options.file, options.fileSet, i = value, true, next
+			continue
+		}
+		if value, next, matched, err := matchStrFlag(args, i, arg, "--image", ""); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				flag, _, _ := strings.Cut(arg, "=")
+				return fmt.Errorf("%s requires a value", flag)
+			}
+			options.image, i = value, next
 			continue
 		}
 		if strings.HasPrefix(arg, "-") {
@@ -373,6 +434,9 @@ func parseRegisterFlags(args []string, options *registerFlags) error {
 			return fmt.Errorf("register accepts at most one NAME")
 		}
 		options.name = arg
+	}
+	if options.fileSet && options.image != "" {
+		return fmt.Errorf("--file and --image cannot be used together")
 	}
 	return nil
 }
@@ -385,6 +449,16 @@ func parseRunFlags(args []string, options *runFlags) error {
 				return err
 			}
 			options.file, options.fileSet, i = value, true, next
+			continue
+		}
+		if value, next, matched, err := matchStrFlag(args, i, arg, "--image", ""); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("--image requires a value")
+			}
+			options.image, i = value, next
 			continue
 		}
 		if value, next, matched, err := matchStrFlag(args, i, arg, "--workspace", "--ws"); matched {
@@ -455,6 +529,15 @@ func parseRunFlags(args []string, options *runFlags) error {
 			}
 			options.name = arg
 		}
+	}
+	if options.image != "" && options.fileSet {
+		return fmt.Errorf("--file and --image cannot be used together")
+	}
+	if options.image != "" && options.name != "" {
+		return fmt.Errorf("NAME and --image cannot be used together")
+	}
+	if options.fileSet && options.name != "" {
+		return fmt.Errorf("NAME and --file cannot be used together")
 	}
 	return nil
 }

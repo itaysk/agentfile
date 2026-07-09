@@ -515,7 +515,10 @@ Build steps:
 4. Copy assets into the image.
 5. Write harness configuration according to the [Harness reference](./harness.md).
 6. Set the image entrypoint.
-7. Tag the image.
+7. Embed agent fields needed at runtime as labels containing JSON serialized fields. Labels:
+  1. `build.agentfile.metadata`
+  2. `build.agentfile.runtimeEnv`
+8. Tag the image.
 
 The image entrypoint runs the selected harness in one-shot mode.  
 The image working directory is `/agent/workspace`.
@@ -537,25 +540,31 @@ metadata.name:metadata.version
 Run starts an agent container and prints the agent stdout. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME] [--file agentfile.yaml] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]
+af agents run [NAME | --file agentfile.yaml | --image REF] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]
 ```
 
 Agent selection:
 
-1. If `--file` is set, load that agentfile.
-2. Otherwise, if `NAME` is set, load the registered agent named `NAME`.
-3. Otherwise, load `agentfile.yaml` from the current directory.
+1. If `--image REF` is set, run that agent image directly without registering it.
+2. Otherwise, if `--file` is set, run that agentfile.
+3. Otherwise, if `NAME` is set, run the registered agent named `NAME`.
+4. Otherwise, if the current directory contains `agentfile.yaml`, run it.
+
+`NAME`, `--file`, and `--image` are mutually exclusive.
+
+`--image` requires an image built by `af build`. The image labels provide the runtime metadata used by the runner. The image is pulled if it is not present locally.
 
 Run steps:
 
-1. Load or build the image.
-2. Bind the workspace if requested.
-3. Pass runtime environment variables.
-4. Start the container.
-5. Print the agent stdout.
-6. Exit with the container exit code.
+1. If running an agentfile, build it into an image first.
+2. If running an agent image, pull the image if needed.
+3. Bind the workspace if requested.
+4. Pass runtime environment variables.
+5. Start the container.
+6. Print the agent stdout.
+7. Exit with the container exit code.
 
-The run command requires an effective prompt.  
+Agentfile source runs require an effective prompt. Image registry entries use the prompt baked into the image.  
 `--workspace PATH` binds `PATH` to `/agent/workspace`. `PATH` must be an existing directory. Relative paths are resolved from the current working directory.  
 `--ws PATH` is an alias for `--workspace PATH`.
 
@@ -563,7 +572,7 @@ The run command requires an effective prompt.
 
 `--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
 `--env-file FILE` loads environment variables from an `.env` file.
-`--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result.
+`--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result. Image pull progress is always printed to stderr, with or without `--debug`.
 
 Every variable referenced by a `runtimeEnv` field in the spec is set automatically when present on host. See [Runtime Variables](#runtime-variables) for details.
 
@@ -582,7 +591,7 @@ After overrides are applied, the effective agentfile is validated again.
 Field overrides can set fields that weren't present in the agentfile, as long as the field path is valid and the resulting agentfile is valid.  
 Overrides cannot set fields inside list items, append list items, or replace a list as a whole.  
 Fields are referenced by their `spec` field path, with the `spec` prefix omitted. Use `--field.path value` or `--field.path=value`.  
-Field overrides are only supported by `af run`. When run directly with Docker, the image uses the spec built into the image.
+Field overrides are only supported when `af run` has an agentfile source (`--file`, the local default, or a source-registered agent). `--image`, image-registered agents, and direct Docker runs use the spec built into the image.
 
 ```bash
 af run hello-world --llm.anthropic.model claude-sonnet-4-5
@@ -592,7 +601,7 @@ af run hello-world --prompt.text "say hi"
 
 ### Agents
 
-The agent registry allows easy discovery and execution of agents. It maps user-local agent names to Agentfile projects.
+The agent registry allows easy discovery and execution of agents. It maps user-local agent names to agentfile projects or agent images.
 
 The agent registry is stored in the [agentfile configuration directory](#configuration) under `/registry.json`.
 
@@ -604,6 +613,10 @@ The registry JSON uses a wrapped object shape:
     "hello": {
       "name": "hello",
       "agentfilePath": "/path/to/project/agentfile.yaml"
+    },
+    "hello-world": {
+      "name": "hello-world",
+      "image": "itaysk/agentfile-hello-world:0.1"
     }
   }
 }
@@ -612,23 +625,27 @@ The registry JSON uses a wrapped object shape:
 A registry entry stores:
 
 1. name
-2. agentfile path
+2. exactly one of `agentfilePath` or `image`
 
-Image tags are derived from the current registered agentfile metadata when needed.
+For agentfile entries, image tags are derived from the current registered agentfile metadata when needed. For image entries, the stored image reference is used directly.
 
 #### Register
 
 Register an agent for later use by name.
 
 ```bash
-af agents register [NAME] [--file agentfile.yaml]
+af agents register [NAME] [--file agentfile.yaml | --image myimage:tag]
 ```
 
 If `NAME` is omitted, `metadata.name` is used.
 
 Registering the same name again replaces the previous registration.  
 
-`--file` defaults to `agentfile.yaml` in the current directory. Relative paths are resolved from the current directory; absolute paths are used as-is.
+`--file` defaults to `agentfile.yaml` in the current directory. Relative paths are resolved from the current directory; absolute paths are used as-is.  
+`--image REF` requires an image built by `af build`.  
+
+Image registration validates the `build.agentfile.*` labels.  
+The image must be present locally, pull it first if you need to.
 
 #### List
 

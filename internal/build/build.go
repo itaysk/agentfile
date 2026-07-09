@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,11 @@ type Options struct {
 	Stdout       io.Writer
 	Stderr       io.Writer
 }
+
+const (
+	MetadataLabel   = "build.agentfile.metadata"
+	RuntimeEnvLabel = "build.agentfile.runtimeEnv"
+)
 
 func Build(ctx context.Context, options Options) (string, error) {
 	if options.Project == nil {
@@ -60,7 +66,19 @@ func Build(ctx context.Context, options Options) (string, error) {
 		return "", err
 	}
 
-	cmd := exec.CommandContext(ctx, options.DockerBinary, "build", "-t", tag, contextDir)
+	metadata, err := json.Marshal(options.Project.AgentFile.Metadata)
+	if err != nil {
+		return "", fmt.Errorf("marshal metadata label: %w", err)
+	}
+	runtimeEnv, err := json.Marshal(options.Project.AgentFile.Spec.RuntimeEnvNames())
+	if err != nil {
+		return "", fmt.Errorf("marshal runtimeEnv label: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, options.DockerBinary, "build",
+		"-t", tag,
+		"--label", MetadataLabel+"="+string(metadata),
+		"--label", RuntimeEnvLabel+"="+string(runtimeEnv),
+		contextDir)
 	cmd.Stdout = options.Stdout
 	cmd.Stderr = options.Stderr
 	if err := cmd.Run(); err != nil {

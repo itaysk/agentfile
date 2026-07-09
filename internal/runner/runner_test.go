@@ -121,6 +121,39 @@ func TestRunMountsWorkspace(t *testing.T) {
 	}
 }
 
+func TestRunWithImageSkipsBuild(t *testing.T) {
+	dockerPath, logPath := installFakeDocker(t)
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devNull.Close()
+
+	t.Setenv("GITHUB_TOKEN", "from-host")
+	image := "registry.example/agent:1.2"
+	code, err := Run(context.Background(), Options{
+		DockerBinary:    dockerPath,
+		Image:           image,
+		RuntimeEnvNames: []string{"GITHUB_TOKEN"},
+		Stdin:           devNull,
+		Stdout:          io.Discard,
+		Stderr:          io.Discard,
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("Run = (%d, %v), want success", code, err)
+	}
+	log := dockerLog(t, logPath)
+	if strings.Contains(log, "build ") {
+		t.Fatalf("docker log contains build despite image option:\n%s", log)
+	}
+	if !strings.Contains(dockerRunArgs(t, logPath), image) {
+		t.Fatalf("docker run args = %q, want image ref", dockerRunArgs(t, logPath))
+	}
+	if !strings.Contains(dockerRunArgs(t, logPath), "-e GITHUB_TOKEN=from-host") {
+		t.Fatalf("docker run args = %q, want runtime env forwarded", dockerRunArgs(t, logPath))
+	}
+}
+
 func TestRunRoutesOutput(t *testing.T) {
 	for _, tt := range []struct {
 		name          string
@@ -160,6 +193,54 @@ func TestRunRoutesOutput(t *testing.T) {
 	}
 }
 
+func TestReadImageInfoReadsLabelsWithoutPulling(t *testing.T) {
+	dockerPath, logPath := installFakeDocker(t)
+
+	info, err := ReadImageInfo(context.Background(), dockerPath, "acme/triage:1.2")
+	if err != nil {
+		t.Fatalf("ReadImageInfo returned error: %v", err)
+	}
+	if info.Metadata.Name != "image-agent" {
+		t.Fatalf("metadata.name = %q, want image-agent", info.Metadata.Name)
+	}
+	if strings.Join(info.RuntimeEnvNames, ",") != "GITHUB_TOKEN" {
+		t.Fatalf("runtime env names = %#v, want GITHUB_TOKEN", info.RuntimeEnvNames)
+	}
+
+	t.Setenv("DOCKER_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "fail-once"))
+	if _, err := ReadImageInfo(context.Background(), dockerPath, "acme/triage:1.2"); err == nil {
+		t.Fatal("ReadImageInfo succeeded despite failed inspect, want error")
+	}
+	if strings.Contains(dockerLog(t, logPath), "pull ") {
+		t.Fatalf("ReadImageInfo pulled:\n%s", dockerLog(t, logPath))
+	}
+}
+
+func TestPullImageStreamsProgress(t *testing.T) {
+	dockerPath, logPath := installFakeDocker(t)
+	var stderr bytes.Buffer
+
+	if err := PullImage(context.Background(), dockerPath, "acme/triage:1.2", &stderr); err != nil {
+		t.Fatalf("PullImage returned error: %v", err)
+	}
+	if !strings.Contains(dockerLog(t, logPath), "pull acme/triage:1.2") {
+		t.Fatalf("docker log = %q, want pull", dockerLog(t, logPath))
+	}
+	if !strings.Contains(stderr.String(), "pulling acme/triage:1.2") {
+		t.Fatalf("stderr = %q, want pull progress", stderr.String())
+	}
+}
+
+func TestReadImageInfoRejectsMissingLabel(t *testing.T) {
+	dockerPath, _ := installFakeDocker(t)
+	t.Setenv("DOCKER_MISSING_LABEL", "1")
+
+	_, err := ReadImageInfo(context.Background(), dockerPath, "busybox:latest")
+	if err == nil || !strings.Contains(err.Error(), "missing build.agentfile.metadata label") {
+		t.Fatalf("ReadImageInfo error = %v, want missing label", err)
+	}
+}
+
 func TestRunRejectsInvalidWorkspaceHostPathBeforeDocker(t *testing.T) {
 	dockerPath, logPath := installFakeDocker(t)
 	filePath := filepath.Join(t.TempDir(), "file")
@@ -192,7 +273,7 @@ func TestRunEnvForwardsRuntimeEnvNames(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "from-host")
 	os.Unsetenv("MISSING_ON_HOST")
 
-	envs := runEnv(project.AgentFile, map[string]string{})
+	envs := runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{})
 	if got := envs["GITHUB_TOKEN"]; got != "from-host" {
 		t.Fatalf("GITHUB_TOKEN = %q, want from-host", got)
 	}
@@ -200,7 +281,7 @@ func TestRunEnvForwardsRuntimeEnvNames(t *testing.T) {
 		t.Fatalf("MISSING_ON_HOST forwarded despite being unset on host")
 	}
 
-	envs = runEnv(project.AgentFile, map[string]string{"GITHUB_TOKEN": "explicit"})
+	envs = runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{"GITHUB_TOKEN": "explicit"})
 	if got := envs["GITHUB_TOKEN"]; got != "explicit" {
 		t.Fatalf("GITHUB_TOKEN = %q, want explicit --env to win", got)
 	}
@@ -213,6 +294,24 @@ func installFakeDocker(t *testing.T) (string, string) {
 	dockerPath := filepath.Join(binDir, "docker")
 	writeRunnerTestFile(t, dockerPath, `#!/bin/sh
 printf '%s\n' "$*" >> "$DOCKER_ARGS_LOG"
+if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
+  if [ -n "${DOCKER_INSPECT_FAIL_ONCE:-}" ] && [ ! -f "$DOCKER_INSPECT_FAIL_ONCE" ]; then
+    touch "$DOCKER_INSPECT_FAIL_ONCE"
+    exit 1
+  fi
+  if [ "${DOCKER_MISSING_LABEL:-}" = "1" ]; then
+    echo '{}'
+    exit 0
+  fi
+  cat <<'JSON'
+{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]"}
+JSON
+  exit 0
+fi
+if [ "$1" = "pull" ]; then
+  echo "pulling $2" >&2
+  exit 0
+fi
 if [ "$1" = "build" ]; then
   echo "build stdout"
   echo "build stderr" >&2
@@ -233,18 +332,24 @@ exit 0
 	return dockerPath, logPath
 }
 
-func dockerRunArgs(t *testing.T, logPath string) string {
+func dockerLog(t *testing.T, logPath string) string {
 	t.Helper()
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	return string(data)
+}
+
+func dockerRunArgs(t *testing.T, logPath string) string {
+	t.Helper()
+	data := dockerLog(t, logPath)
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
 		if strings.HasPrefix(line, "run ") {
 			return line
 		}
 	}
-	t.Fatalf("no docker run call in log:\n%s", string(data))
+	t.Fatalf("no docker run call in log:\n%s", data)
 	return ""
 }
 

@@ -74,6 +74,28 @@ func TestRuntimeEnvEndToEnd(t *testing.T) {
 		t.Fatalf("Build returned error: %v\n%s", err, buildLog.String())
 	}
 
+	t.Run("image carries metadata and runtime env labels", func(t *testing.T) {
+		output, err := exec.Command("docker", "image", "inspect", "--format", "{{json .Config.Labels}}", tag).Output()
+		if err != nil {
+			t.Fatalf("docker image inspect: %v", err)
+		}
+		var labels map[string]string
+		if err := json.Unmarshal(output, &labels); err != nil {
+			t.Fatalf("unmarshal labels: %v\n%s", err, output)
+		}
+		var metadata agentfile.Metadata
+		if err := json.Unmarshal([]byte(labels[MetadataLabel]), &metadata); err != nil {
+			t.Fatalf("unmarshal metadata label: %v", err)
+		}
+		var runtimeEnv []string
+		if err := json.Unmarshal([]byte(labels[RuntimeEnvLabel]), &runtimeEnv); err != nil {
+			t.Fatalf("unmarshal runtimeEnv label: %v", err)
+		}
+		if metadata.Name != project.AgentFile.Metadata.Name || strings.Join(runtimeEnv, ",") != "GITHUB_TOKEN,SEARCH_MCP_AUTH" {
+			t.Fatalf("labels metadata=%#v runtimeEnv=%#v, want built metadata and runtime env names", metadata, runtimeEnv)
+		}
+	})
+
 	t.Run("secret absent from image", func(t *testing.T) {
 		saved, err := exec.Command("docker", "save", tag).Output()
 		if err != nil {
