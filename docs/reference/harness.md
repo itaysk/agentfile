@@ -4,19 +4,16 @@ The [reference manual](./reference.md) defines the agentfile schema and effectiv
 This file defines how agentfile features map to each harness's configuration and runtime behavior.
 
 A "harness adapter" is the implementation that performs the mapping and setup.
-Adapter work happens at build time, with access to the Agentfile project. The adapter produces a container image that is fully set up and ready to run. The adapter is not present in the container image, but it creates an entrypoint that applies runtime setup before launching the harness.
+Adapter work happens at build time, with access to the Agentfile project. The adapter produces a layout that is fully set up and ready to run.
 
-If a selected harness cannot represent an effective agentfile capability listed here, the build must fail with a clear unsupported-combination error. Do not silently drop prompts, skills, MCP servers, environment variables, or model provider settings.
+If a selected harness cannot represent an effective agentfile capability listed here, the build must fail with a clear unsupported-combination error.
 
 ## Runtime Layout
 
-The build must stage agentfile assets under:
+The agent process runs with `/agent/workspace` as its working directory. The workspace is considered purely under the user's and agent's control and is meant for input/output. It does not contain agentfile setup files.
 
-```text
-/agent/agentfile
-```
-
-The agent process runs with `/agent/workspace` as its working directory. The staged files are implementation input for the image entrypoint, not user workspace files.
+The build stages agentfile assets under `/agent/agentfile`.  
+The staged files are implementation input for the harness and the image entrypoint.
 
 | Asset | Staged location |
 | --- | --- |
@@ -33,14 +30,17 @@ The image entrypoint must:
 1. Validate that every runtime variable is provided. Empty string is a value and considered provided.
 2. Substitute placeholder values in the staged harness config files, escaped for the config format (JSON/TOML).
 3. Apply `spec.envs` as default environment variables. `runtimeEnv` entries resolve from their source variable.
-4. Set the harness home and config environment described below.
-5. Run from `/agent/workspace`.
-6. Exit before launching the harness when `AGENTFILE_RENDER_ONLY` is set and non-empty.
-7. Pass the exact resolved prompt text to the harness one-shot command.
-8. Stream harness stdout and stderr unchanged.
-9. Exit with the harness process exit code.
+4. Identify and setup runtime overrides to agentfile fields:
+  1. `AGENTFILE_PROMPT` (default to `spec.prompt`)
+  2. `AGENTFILE_MODEL` (default to `spec.llm.model`)
+5. Set the harness home and config environment described below.
+6. Run from `/agent/workspace`.
+7. Exit before launching the harness when `AGENTFILE_RENDER_ONLY` is set and non-empty.
+8. Setup harness stdout and stderr streaming.
+9. Invoke harness command with correct flags and variables.
+10. Exit with the harness process exit code.
 
-The entrypoint owns the `AGENTFILE_` environment variable namespace: it publishes `AGENTFILE_PROMPT`, `AGENTFILE_PROVIDER`, `AGENTFILE_MODEL`, and `AGENTFILE_SYSTEM_PROMPT`, reads `AGENTFILE_RENDER_ONLY`, and may use further `AGENTFILE_`-prefixed variables internally (for example during config substitution). This is why agentfile entry names and `runtimeEnv` names must not start with `AGENTFILE_`.
+The entrypoint owns the `AGENTFILE_` environment variable namespace: it accepts `AGENTFILE_PROMPT` and `AGENTFILE_MODEL` as run overrides, publishes their effective values along with `AGENTFILE_PROVIDER` and `AGENTFILE_SYSTEM_PROMPT`, reads `AGENTFILE_RENDER_ONLY`, and may use further `AGENTFILE_`-prefixed variables internally (for example during config substitution). This is why agentfile entry names and `runtimeEnv` names must not start with `AGENTFILE_`.
 
 The entrypoint resolves each runtime variable once and substitutes that single resolution into every config token that references it.
 

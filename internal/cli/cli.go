@@ -102,7 +102,7 @@ func runAgents(args []string, stdout, stderr io.Writer) (int, error) {
 
 func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]")
+		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]")
 		return 0, nil
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
@@ -119,15 +119,12 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	if project != nil {
-		if err := applyMutations(project, options.mutations); err != nil {
-			return 1, err
-		}
-	}
 	exitCode, err := runner.Run(context.Background(), runner.Options{
 		Project:         project,
 		Image:           image,
 		RuntimeEnvNames: runtimeEnvNames,
+		Prompt:          options.prompt,
+		Model:           options.model,
 		Env:             options.env,
 		EnvFiles:        options.envFiles,
 		Workspace:       options.workspace,
@@ -231,9 +228,6 @@ func runRemove(args []string, stdout io.Writer) error {
 
 func loadRunSelection(options runFlags, stderr io.Writer) (*agentfile.Project, string, []string, error) {
 	if options.image != "" {
-		if len(options.mutations) > 0 {
-			return nil, "", nil, fmt.Errorf("field overrides require an agentfile source")
-		}
 		image, runtimeEnvNames, err := loadRunImage(options.image, stderr)
 		return nil, image, runtimeEnvNames, err
 	}
@@ -251,9 +245,6 @@ func loadRunSelection(options runFlags, stderr io.Writer) (*agentfile.Project, s
 			return nil, "", nil, fmt.Errorf("agent %q is not registered", options.name)
 		}
 		if entry.Image != "" {
-			if len(options.mutations) > 0 {
-				return nil, "", nil, fmt.Errorf("field overrides require an agentfile source")
-			}
 			image, runtimeEnvNames, err := loadRunImage(entry.Image, stderr)
 			return nil, image, runtimeEnvNames, err
 		}
@@ -276,15 +267,6 @@ func loadRunImage(image string, stderr io.Writer) (string, []string, error) {
 		}
 	}
 	return image, info.RuntimeEnvNames, nil
-}
-
-func applyMutations(project *agentfile.Project, mutations []fieldMutation) error {
-	for _, mutation := range mutations {
-		if err := project.ApplyOverride(mutation.path, mutation.value); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func printHelp(w io.Writer) {
@@ -341,13 +323,9 @@ type runFlags struct {
 	env       map[string]string
 	envFiles  []string
 	workspace string
+	prompt    *string
+	model     string
 	debug     bool
-	mutations []fieldMutation
-}
-
-type fieldMutation struct {
-	path  string
-	value string
 }
 
 // matchStrFlag recognizes "--long value", "short value", "--long=value", and "short=value".
@@ -364,21 +342,6 @@ func matchStrFlag(args []string, i int, arg, long, short string) (value string, 
 		return strings.TrimPrefix(arg, short+"="), i, true, nil
 	}
 	return "", i, false, nil
-}
-
-// matchAssetFlag handles --<asset> / --<asset>=value for each spec asset field,
-// recording an override mutation. matched is false when arg is not an asset flag.
-func matchAssetFlag(args []string, i int, arg string, options *runFlags) (matched bool, next int, err error) {
-	for _, asset := range agentfile.AssetFields() {
-		if value, n, ok, err := matchStrFlag(args, i, arg, "--"+asset, ""); ok {
-			if err != nil {
-				return true, i, err
-			}
-			options.mutations = append(options.mutations, fieldMutation{path: asset, value: value})
-			return true, n, nil
-		}
-	}
-	return false, i, nil
 }
 
 func parseBuildFlags(args []string, options *buildFlags) error {
@@ -476,13 +439,21 @@ func parseRunFlags(args []string, options *runFlags) error {
 			options.workspace, i = abs, next
 			continue
 		}
-		// Asset flags (--prompt, --systemPrompt) come from the spec's asset
-		// list; the override layer turns a bare value into a text source.
-		if matched, next, err := matchAssetFlag(args, i, arg, options); matched {
+		if value, next, matched, err := matchStrFlag(args, i, arg, "--prompt", ""); matched {
 			if err != nil {
 				return err
 			}
-			i = next
+			options.prompt, i = &value, next
+			continue
+		}
+		if value, next, matched, err := matchStrFlag(args, i, arg, "--model", ""); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("--model requires a value")
+			}
+			options.model, i = value, next
 			continue
 		}
 		switch {
@@ -514,13 +485,6 @@ func parseRunFlags(args []string, options *runFlags) error {
 			options.envFiles = append(options.envFiles, strings.TrimPrefix(arg, "--env-file="))
 		case arg == "--debug":
 			options.debug = true
-		case strings.HasPrefix(arg, "--") && strings.Contains(arg, "."):
-			path, value, next, err := parseOverrideArg(args, i)
-			if err != nil {
-				return err
-			}
-			options.mutations = append(options.mutations, fieldMutation{path: path, value: value})
-			i = next
 		case strings.HasPrefix(arg, "-"):
 			return fmt.Errorf("unknown run argument %q", arg)
 		default:
@@ -548,18 +512,6 @@ func consumeValue(args []string, index int, flag string) (string, int, error) {
 		return "", index, fmt.Errorf("%s requires a value", flag)
 	}
 	return args[next], next, nil
-}
-
-func parseOverrideArg(args []string, index int) (string, string, int, error) {
-	arg := strings.TrimPrefix(args[index], "--")
-	if before, after, ok := strings.Cut(arg, "="); ok {
-		return before, after, index, nil
-	}
-	value, next, err := consumeValue(args, index, "--"+arg)
-	if err != nil {
-		return "", "", index, err
-	}
-	return arg, value, next, nil
 }
 
 func parseEnv(raw string) (string, string, error) {

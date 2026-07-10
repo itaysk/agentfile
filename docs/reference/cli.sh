@@ -12,9 +12,9 @@ af agents run \ # run agent
     myagent \ # name of registered agent
     --file agentfile.yaml \  # build agent first from given agentfile. Short: -f. Relative to current directory or absolute. Default: agentfile.yaml. Mutually exclusive with NAME and --image
     --image myregistry.example/myagent:latest \ # run an agent image directly. Mutually exclusive with NAME and --file
+    --prompt "say hi" \ # replace the agent's default prompt for this run
+    --model claude-sonnet-4-5 \ # replace the agent's default model for this run
     --workspace /path/to/dir \ # bind an existing directory to /agent/workspace. Alias: --ws
-    --prompt "say hi" \ # replace spec.prompt with an inline text source for this run
-    --parent.field value # set a spec-level agentfile nested field to the given string value
     --env KEY[=VALUE] \ # set an environment variable in the container. if VALUE is omitted, the value is taken from the current environment
     --env-file FILE \ # load environment variables from an .env file
     --debug # print build progress and agent stderr

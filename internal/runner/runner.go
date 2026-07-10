@@ -28,6 +28,8 @@ type Options struct {
 	Stderr          io.Writer
 	Image           string
 	RuntimeEnvNames []string
+	Prompt          *string
+	Model           string
 	extraDockerArgs []string
 }
 
@@ -35,7 +37,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if options.Project == nil && options.Image == "" {
 		return 1, fmt.Errorf("project is required")
 	}
-	if options.Image == "" && options.Project.AgentFile.Spec.Prompt == nil {
+	if options.Image == "" && options.Project.AgentFile.Spec.Prompt == nil && options.Prompt == nil {
 		return 1, fmt.Errorf("run requires an effective prompt")
 	}
 	if options.DockerBinary == "" {
@@ -96,6 +98,12 @@ func Run(ctx context.Context, options Options) (int, error) {
 		runtimeEnvNames = options.Project.AgentFile.Spec.RuntimeEnvNames()
 	}
 	envs := runEnv(runtimeEnvNames, options.Env)
+	if options.Prompt != nil {
+		envs["AGENTFILE_PROMPT"] = *options.Prompt
+	}
+	if options.Model != "" {
+		envs["AGENTFILE_MODEL"] = options.Model
+	}
 	for _, key := range slices.Sorted(maps.Keys(envs)) {
 		args = append(args, "-e", key+"="+envs[key])
 	}

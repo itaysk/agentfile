@@ -12,6 +12,6 @@ spec:
     text: |
       say hi!
   envs:
-    - name: ANTHROPIC_API_KEY
+    - name: CLAUDE_CODE_OAUTH_TOKEN
       runtimeEnv:
-        name: ANTHROPIC_API_KEY
+        name: CLAUDE_CODE_OAUTH_TOKEN

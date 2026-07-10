@@ -301,10 +301,11 @@ af agents register -f agentfile.yaml # register hello-world agent
 af run hello-world # run agent by name, no need to locate the agentfile.
 ```
 
-You can override agentfile fields at runtime:
+You can override some agentfile fields at runtime:
 
 ```bash
-af run hello-world --llm.anthropic.model "claude-sonnet-4-5" # change model for single run
+af run hello-world --prompt "say something else"
+af run hello-world --model "claude-sonnet-4-5"
 ```
 
 This feature can be utilized for creating ad-hoc agents.  

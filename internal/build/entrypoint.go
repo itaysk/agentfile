@@ -29,20 +29,19 @@ func entrypointScript(af agentfile.AgentFile, assets *agentfile.ResolvedAssets, 
 
 	writeSpecEnvExports(&builder, af.Spec.Envs)
 	if assets.HasPrompt {
-		builder.WriteString("AGENTFILE_PROMPT=")
+		builder.WriteString(`if [ -z "${AGENTFILE_PROMPT+x}" ]; then AGENTFILE_PROMPT=`)
 		builder.WriteString(shQuote(assets.Prompt))
-		builder.WriteString("\n")
-		builder.WriteString("export AGENTFILE_PROMPT\n")
+		builder.WriteString("; fi\n")
 	} else {
-		builder.WriteString("echo \"agentfile: effective prompt is required\" >&2\n")
-		builder.WriteString("exit 64\n")
+		builder.WriteString(`: "${AGENTFILE_PROMPT?agentfile: effective prompt is required}"` + "\n")
 	}
+	builder.WriteString("export AGENTFILE_PROMPT\n")
 	builder.WriteString("AGENTFILE_PROVIDER=")
 	builder.WriteString(shQuote(af.Spec.LLM.ProviderName()))
 	builder.WriteString("\n")
-	builder.WriteString("AGENTFILE_MODEL=")
+	builder.WriteString(`if [ -z "${AGENTFILE_MODEL:-}" ]; then AGENTFILE_MODEL=`)
 	builder.WriteString(shQuote(af.Spec.LLM.Model()))
-	builder.WriteString("\n")
+	builder.WriteString("; fi\n")
 	builder.WriteString("export AGENTFILE_PROVIDER AGENTFILE_MODEL\n")
 	if assets.HasSystemPrompt {
 		builder.WriteString("AGENTFILE_SYSTEM_PROMPT=")

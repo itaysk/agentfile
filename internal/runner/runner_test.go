@@ -131,10 +131,13 @@ func TestRunWithImageSkipsBuild(t *testing.T) {
 
 	t.Setenv("GITHUB_TOKEN", "from-host")
 	image := "registry.example/agent:1.2"
+	prompt := "say runtime hi"
 	code, err := Run(context.Background(), Options{
 		DockerBinary:    dockerPath,
 		Image:           image,
 		RuntimeEnvNames: []string{"GITHUB_TOKEN"},
+		Prompt:          &prompt,
+		Model:           "gpt-5",
 		Stdin:           devNull,
 		Stdout:          io.Discard,
 		Stderr:          io.Discard,
@@ -151,6 +154,33 @@ func TestRunWithImageSkipsBuild(t *testing.T) {
 	}
 	if !strings.Contains(dockerRunArgs(t, logPath), "-e GITHUB_TOKEN=from-host") {
 		t.Fatalf("docker run args = %q, want runtime env forwarded", dockerRunArgs(t, logPath))
+	}
+	if !strings.Contains(dockerRunArgs(t, logPath), "-e AGENTFILE_MODEL=gpt-5") {
+		t.Fatalf("docker run args = %q, want model override", dockerRunArgs(t, logPath))
+	}
+	if !strings.Contains(dockerRunArgs(t, logPath), "-e AGENTFILE_PROMPT=say runtime hi") {
+		t.Fatalf("docker run args = %q, want prompt override", dockerRunArgs(t, logPath))
+	}
+}
+
+func TestRunAcceptsRuntimePromptWithoutBuildPrompt(t *testing.T) {
+	dockerPath, logPath := installFakeDocker(t)
+	project := runnerTestProject(t)
+	project.AgentFile.Spec.Prompt = nil
+	prompt := "runtime prompt"
+
+	code, err := Run(context.Background(), Options{
+		Project:      project,
+		Prompt:       &prompt,
+		DockerBinary: dockerPath,
+		Stdout:       io.Discard,
+		Stderr:       io.Discard,
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("Run = (%d, %v), want success", code, err)
+	}
+	if !strings.Contains(dockerRunArgs(t, logPath), "-e AGENTFILE_PROMPT=runtime prompt") {
+		t.Fatalf("docker run args = %q, want runtime prompt", dockerRunArgs(t, logPath))
 	}
 }
 

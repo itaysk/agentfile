@@ -315,10 +315,7 @@
           "$ref": "#/$defs/runtimeEnv"
         }
       },
-      "oneOf": [
-        { "required": ["value"] },
-        { "required": ["runtimeEnv"] }
-      ]
+      "oneOf": [{ "required": ["value"] }, { "required": ["runtimeEnv"] }]
     },
     "header": {
       "type": "object",
@@ -336,10 +333,7 @@
           "$ref": "#/$defs/runtimeEnv"
         }
       },
-      "oneOf": [
-        { "required": ["value"] },
-        { "required": ["runtimeEnv"] }
-      ]
+      "oneOf": [{ "required": ["value"] }, { "required": ["runtimeEnv"] }]
     },
     "runtimeEnv": {
       "type": "object",

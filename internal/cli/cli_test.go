@@ -77,7 +77,7 @@ func TestParseBuildFlagsSupportsShortFileEquals(t *testing.T) {
 	}
 }
 
-func TestParseRunFlagsSupportsPromptOverrideAlias(t *testing.T) {
+func TestParseRunFlagsSupportsPromptOverride(t *testing.T) {
 	options := runFlags{env: map[string]string{}}
 	if err := parseRunFlags([]string{"cc", "--prompt", "say hi"}, &options); err != nil {
 		t.Fatalf("parseRunFlags returned error: %v", err)
@@ -85,11 +85,24 @@ func TestParseRunFlagsSupportsPromptOverrideAlias(t *testing.T) {
 	if options.name != "cc" {
 		t.Fatalf("name = %q, want cc", options.name)
 	}
-	if len(options.mutations) != 1 {
-		t.Fatalf("mutations = %#v, want one prompt mutation", options.mutations)
+	if options.prompt == nil || *options.prompt != "say hi" {
+		t.Fatalf("prompt = %v, want say hi", options.prompt)
 	}
-	if options.mutations[0].path != "prompt" || options.mutations[0].value != "say hi" {
-		t.Fatalf("mutation = %#v, want prompt text", options.mutations[0])
+}
+
+func TestParseRunFlagsSupportsModelOverride(t *testing.T) {
+	options := runFlags{env: map[string]string{}}
+	if err := parseRunFlags([]string{"--model=claude-sonnet-4-5"}, &options); err != nil {
+		t.Fatalf("parseRunFlags returned error: %v", err)
+	}
+	if options.model != "claude-sonnet-4-5" {
+		t.Fatalf("model = %q, want claude-sonnet-4-5", options.model)
+	}
+
+	for _, args := range [][]string{{"--model="}, {"--llm.anthropic.model", "claude-sonnet-4-5"}, {"--prompt.text", "hi"}, {"--harness.image", "example/image"}, {"--systemPrompt", "x"}} {
+		if err := parseRunFlags(args, &runFlags{env: map[string]string{}}); err == nil {
+			t.Fatalf("parseRunFlags(%q) accepted removed generic override", args)
+		}
 	}
 }
 
@@ -281,14 +294,14 @@ func TestRegisterImageListAndRunValidation(t *testing.T) {
 	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var runOut bytes.Buffer
-	var runErr bytes.Buffer
-	code = Run([]string{"run", "image-agent", "--prompt", "x"}, &runOut, &runErr)
-	if code != 1 || !strings.Contains(runErr.String(), "field overrides require an agentfile source") {
-		t.Fatalf("run override exit = %d, stderr = %q, want source-registered error", code, runErr.String())
+	var overrideOut bytes.Buffer
+	var overrideErr bytes.Buffer
+	code = Run([]string{"run", "image-agent", "--prompt", "say hi", "--model", "gpt-5"}, &overrideOut, &overrideErr)
+	if code != 0 {
+		t.Fatalf("run override exit = %d, stderr = %q", code, overrideErr.String())
 	}
-	if log := readCLILog(t, logPath); log != "" {
-		t.Fatalf("override validation called docker:\n%s", log)
+	if args := readCLILog(t, logPath); !strings.Contains(args, "-e AGENTFILE_MODEL=gpt-5") || !strings.Contains(args, "-e AGENTFILE_PROMPT=say hi") {
+		t.Fatalf("docker log = %q, want prompt and model overrides", args)
 	}
 
 	t.Setenv("DOCKER_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "fail-once"))
@@ -327,6 +340,7 @@ func TestRunImageAdHoc(t *testing.T) {
 	var stderr bytes.Buffer
 	code := Run([]string{
 		"run", "--image", "acme/triage:1.2",
+		"--prompt", "say hi", "--model", "gpt-5",
 		"--workspace", workspace, "--env", "EXTRA=value",
 	}, &stdout, &stderr)
 	if code != 0 {
@@ -335,6 +349,8 @@ func TestRunImageAdHoc(t *testing.T) {
 	log := readCLILog(t, logPath)
 	for _, want := range []string{
 		"image inspect --format",
+		"-e AGENTFILE_MODEL=gpt-5",
+		"-e AGENTFILE_PROMPT=say hi",
 		"-e EXTRA=value",
 		"-e GITHUB_TOKEN=host-token",
 		"-v " + workspace + ":/agent/workspace",
@@ -346,17 +362,6 @@ func TestRunImageAdHoc(t *testing.T) {
 	}
 	if strings.Contains(log, " build ") {
 		t.Fatalf("ad hoc image run built an image:\n%s", log)
-	}
-
-	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code = Run([]string{"run", "--image", "acme/triage:1.2", "--prompt", "x"}, &stdout, &stderr)
-	if code != 1 || !strings.Contains(stderr.String(), "field overrides require an agentfile source") {
-		t.Fatalf("run override exit = %d, stderr = %q, want agentfile source error", code, stderr.String())
-	}
-	if log := readCLILog(t, logPath); log != "" {
-		t.Fatalf("override validation called docker:\n%s", log)
 	}
 }
 

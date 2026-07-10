@@ -169,8 +169,8 @@ For more information, see [Bare mode](./harness.md#bare-mode) in the Harness ref
 Use `spec.llm` to configure the model provider and model used by the harness.  
 Exactly one provider key must be set.  
 Supported providers are `anthropic`, `openai`, and `openrouter`.  
-Each provider requires `model`.
-`model` must be a non-empty string.
+Each provider requires `model`. Valid model names are determined by the provider.
+The model can be overridden for a single agent run using the `--model` flag.
 
 ```yaml
 spec:
@@ -227,6 +227,7 @@ If `CODEX_ACCESS_TOKEN` is set, it takes precedence over `CODEX_API_KEY` and `OP
 
 Use `spec.prompt` to give the agent its one-shot task.  
 Prompt content is supplied with a [source object](#sources).
+The prompt can be overridden for a single agent run using the `--prompt` flag.
 
 ```yaml
 spec:
@@ -540,7 +541,7 @@ metadata.name:metadata.version
 Run starts an agent container and prints the agent stdout. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME | --file agentfile.yaml | --image REF] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug] [field overrides]
+af agents run [NAME | --file agentfile.yaml | --image REF] [--prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]
 ```
 
 Agent selection:
@@ -564,7 +565,6 @@ Run steps:
 6. Print the agent stdout.
 7. Exit with the container exit code.
 
-Agentfile source runs require an effective prompt. Image registry entries use the prompt baked into the image.  
 `--workspace PATH` binds `PATH` to `/agent/workspace`. `PATH` must be an existing directory. Relative paths are resolved from the current working directory.  
 `--ws PATH` is an alias for `--workspace PATH`.
 
@@ -584,19 +584,16 @@ tail -200 app.log | af run log-triage
 
 #### Field Overrides
 
-Field overrides change scalar `spec` fields for one run.  
-Field overrides can override complete asset sources, in which case the `text` source is used in the effective agentfile (e.g `--prompt="example"` becomes `prompt: { text: "example" }`).  
-Field overrides are applied after effective file configuration is loaded and before the run starts. They replace matching effective file values.  
-After overrides are applied, the effective agentfile is validated again.  
-Field overrides can set fields that weren't present in the agentfile, as long as the field path is valid and the resulting agentfile is valid.  
-Overrides cannot set fields inside list items, append list items, or replace a list as a whole.  
-Fields are referenced by their `spec` field path, with the `spec` prefix omitted. Use `--field.path value` or `--field.path=value`.  
-Field overrides are only supported when `af run` has an agentfile source (`--file`, the local default, or a source-registered agent). `--image`, image-registered agents, and direct Docker runs use the spec built into the image.
+Run supports overriding certain agentfile fields:
+
+- `--prompt` field or `AGENTFILE_PROMPT` environment variable replaces the image's default prompt. It can also supply the prompt when the agentfile does not define one.
+- `--model` fields or `AGENTFILE_MODEL` environment variable replaces the image's default model. The provider remains the one declared in the agentfile.
+
+These values are passed to the container at runtime. They do not modify the effective agentfile or the image. Other agentfile fields cannot be overridden.
 
 ```bash
-af run hello-world --llm.anthropic.model claude-sonnet-4-5
 af run hello-world --prompt "say hi"
-af run hello-world --prompt.text "say hi"
+af run hello-world --model claude-sonnet-4-5
 ```
 
 ### Agents

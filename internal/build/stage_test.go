@@ -187,6 +187,7 @@ func TestStageContextWritesCodexRuntimeLayout(t *testing.T) {
 	assertFileContains(t, entrypoint, `sed 's,__AGENTFILE_REF_GITHUB_TOKEN__,'"$AGENTFILE_ESC_GITHUB_TOKEN"',g' '/agent/agentfile/codex/home/.codex/config.toml' > '/agent/agentfile/codex/home/.codex/config.toml.tmp' && mv '/agent/agentfile/codex/home/.codex/config.toml.tmp' '/agent/agentfile/codex/home/.codex/config.toml'`)
 	assertFileContains(t, entrypoint, `if [ -z "${GH_TOKEN+x}" ]; then export GH_TOKEN="${GITHUB_TOKEN}"; fi`)
 	assertFileContains(t, entrypoint, `if [ -z "${CODEX_ACCESS_TOKEN+x}" ]; then export CODEX_ACCESS_TOKEN="${CODEX_ACCESS_TOKEN}"; fi`)
+	assertFileContains(t, entrypoint, `if [ -z "${AGENTFILE_MODEL:-}" ]; then AGENTFILE_MODEL='gpt-5-mini'; fi`)
 	assertPathExists(t, filepath.Join(contextDir, "agentfile", "skills", "helper", "SKILL.md"))
 	assertPathExists(t, filepath.Join(contextDir, "agentfile", "codex", "home", ".agents", "skills", "helper", "SKILL.md"))
 	assertFileContains(t, entrypoint, `unset CODEX_API_KEY`)
@@ -278,6 +279,23 @@ func TestShellQuotePreservesSingleQuotesAndTrailingNewlines(t *testing.T) {
 	}
 	if string(output) != value {
 		t.Fatalf("quoted shell value = %q, want %q", string(output), value)
+	}
+}
+
+func TestEntrypointPromptUsesRuntimeOverrideOrBuildDefault(t *testing.T) {
+	af := agentfile.AgentFile{Spec: agentfile.Spec{
+		Harness: agentfile.Harness{Codex: &agentfile.EmptyObject{}},
+		LLM:     agentfile.LLM{OpenAI: &agentfile.ModelProvider{Model: "gpt-5-mini"}},
+	}}
+
+	script := entrypointScript(af, &agentfile.ResolvedAssets{Prompt: "build prompt", HasPrompt: true}, nil)
+	if !strings.Contains(script, `if [ -z "${AGENTFILE_PROMPT+x}" ]; then AGENTFILE_PROMPT='build prompt'; fi`) {
+		t.Fatalf("entrypoint does not use build prompt as fallback:\n%s", script)
+	}
+
+	script = entrypointScript(af, &agentfile.ResolvedAssets{}, nil)
+	if !strings.Contains(script, `: "${AGENTFILE_PROMPT?agentfile: effective prompt is required}"`) {
+		t.Fatalf("entrypoint does not require a runtime prompt when no build prompt exists:\n%s", script)
 	}
 }
 
