@@ -586,13 +586,13 @@ tail -200 app.log | af run log-triage
 
 #### TUI Mode
 
-`--tui` opens the harness's native interactive terminal. Claude Code runs with `IS_DEMO=1` in both one-shot and TUI modes, which skips first-run onboarding and hides account and organization identity; authentication still comes from runtime credentials such as `CLAUDE_CODE_OAUTH_TOKEN`.
+`--tui` opens the selected harness's native interactive terminal. Claude Code runs with `IS_DEMO=1` in both one-shot and TUI modes, which skips first-run onboarding and hides account and organization identity; authentication still comes from runtime credentials such as `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ```bash
 af run code-review --tui --workspace .
 ```
 
-TUI mode is currently supported only for the `claudecode` harness. It starts without an initial user message: `spec.prompt` is ignored, and `--prompt` cannot be combined with `--tui`.
+TUI mode starts without an initial user message: `spec.prompt` is ignored, and `--prompt` cannot be combined with `--tui`.
 
 For image-based selection, TUI mode requires the `build.agentfile.harness` label added by current Agentfile builds.
 
@@ -692,7 +692,7 @@ Use a bind mount for workspace input and output:
 docker run --rm -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:latest
 ```
 
-Open the Claude Code TUI by allocating a terminal and selecting `tui` mode:
+Open the harness TUI by allocating a terminal and selecting `tui` mode:
 
 ```bash
 docker run --rm -it -e AGENTFILE_RUN_MODE=tui -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:latest

@@ -107,6 +107,7 @@ func codexConfigFiles(af agentfile.AgentFile, assets *agentfile.ResolvedAssets) 
 		builder.WriteString(tomlString("/agent/agentfile/system-prompt.md"))
 		builder.WriteString("\n")
 	}
+	builder.WriteString("\n[projects.\"/agent/workspace\"]\ntrust_level = \"trusted\"\n")
 	if len(af.Spec.MCPs) > 0 {
 		builder.WriteString("\n")
 		writeCodexMCPConfig(&builder, af.Spec.MCPs)

@@ -48,7 +48,6 @@ The entrypoint owns the `AGENTFILE_` environment variable namespace: it accepts 
 ## Run Modes
 
 `AGENTFILE_RUN_MODE` accepts `oneshot` and `tui`. Unset or empty defaults to `oneshot`; any other value exits with status 64.
-TUI mode is currently supported only by Claude Code. Codex and Pi images reject it with a clear error message.
 
 In TUI mode, the entrypoint does not resolve, require, export, or pass `AGENTFILE_PROMPT`; it unsets an inherited value. The TUI starts without an initial user message.
 
@@ -171,6 +170,9 @@ Write MCP servers to `/agent/agentfile/codex/home/.codex/config.toml` using `mcp
 ```toml
 project_doc_max_bytes = 0
 
+[projects."/agent/workspace"]
+trust_level = "trusted"
+
 [mcp_servers.time]
 command = "uv"
 args = ["tool", "run", "mcp-server-time"]
@@ -266,8 +268,9 @@ CODEX_HOME=/agent/agentfile/codex/home/.codex
 
 If `CODEX_ACCESS_TOKEN` is unset, `OPENAI_API_KEY` is set, and `CODEX_API_KEY` is unset, the entrypoint must set `CODEX_API_KEY="$OPENAI_API_KEY"` for the Codex process. Do not persist these variables.
 If `CODEX_ACCESS_TOKEN` is set, it takes precedence over `CODEX_API_KEY` and `OPENAI_API_KEY`.
+Before launching the TUI, the entrypoint passes the selected credential to `codex login --with-access-token` or `codex login --with-api-key`. This skips first-run authentication while keeping the generated auth file inside the ephemeral container.
 
-Command:
+One-shot command:
 
 ```bash
 codex exec \
@@ -277,7 +280,17 @@ codex exec \
   "$AGENTFILE_PROMPT"
 ```
 
-Codex reads generated system prompt, MCP, and other adapter config from `$CODEX_HOME/config.toml`. The generated config must include `project_doc_max_bytes = 0` so workspace `AGENTS.md` files do not change the packaged agent behavior.
+TUI command:
+
+```bash
+codex \
+  --dangerously-bypass-approvals-and-sandbox \
+  --model "$AGENTFILE_MODEL"
+```
+
+The TUI command omits the `exec` subcommand, `--skip-git-repo-check`, and a positional prompt.
+
+Codex reads generated system prompt, MCP, and other adapter config from `$CODEX_HOME/config.toml`. The generated config sets `project_doc_max_bytes = 0` so workspace `AGENTS.md` files do not change the packaged agent behavior, and marks `/agent/workspace` as trusted so the TUI does not prompt before opening it.
 
 ### Pi
 
@@ -289,7 +302,7 @@ Runtime environment:
 PI_CODING_AGENT_DIR=/agent/agentfile/pi/home
 ```
 
-Command:
+One-shot command:
 
 ```bash
 pi \
@@ -301,6 +314,19 @@ pi \
   [--skill /agent/agentfile/skills/<skill-name> ...] \
   "$AGENTFILE_PROMPT"
 ```
+
+TUI command:
+
+```bash
+pi \
+  --provider "$AGENTFILE_PROVIDER" \
+  --model "$AGENTFILE_MODEL" \
+  --no-context-files \
+  [--system-prompt "$AGENTFILE_SYSTEM_PROMPT"] \
+  [--skill /agent/agentfile/skills/<skill-name> ...]
+```
+
+The TUI command omits `-p` and a positional prompt.
 
 `--no-context-files` prevents workspace `AGENTS.md` and `CLAUDE.md` files from changing the packaged agent behavior. Skills declared by the agentfile are still loaded through explicit `--skill` flags.
 

@@ -104,7 +104,7 @@ func TestRunTUILaunchesPromptlessClaudeWithTTY(t *testing.T) {
 	}
 }
 
-func TestRunTUIRejectsPromptAndUnsupportedImages(t *testing.T) {
+func TestRunTUIRejectsPromptAndLegacyImages(t *testing.T) {
 	prompt := "not supported"
 	for _, tt := range []struct {
 		name    string
@@ -122,11 +122,6 @@ func TestRunTUIRejectsPromptAndUnsupportedImages(t *testing.T) {
 			name:    "legacy image",
 			options: Options{Image: "acme/legacy:1", TUI: true},
 			want:    "predates TUI support",
-		},
-		{
-			name:    "codex image",
-			options: Options{Image: "acme/codex:1", Harness: "codex", TUI: true},
-			want:    "currently supports claudecode harness only",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

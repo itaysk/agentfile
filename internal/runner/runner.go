@@ -50,9 +50,6 @@ func Run(ctx context.Context, options Options) (int, error) {
 		if harness == "" {
 			return 1, fmt.Errorf("image %q predates TUI support (missing %s label); rebuild it with a current af", options.Image, buildpkg.HarnessLabel)
 		}
-		if harness != "claudecode" {
-			return 1, fmt.Errorf("unsupported combination: --tui currently supports claudecode harness only")
-		}
 	}
 	if !options.TUI && options.Image == "" && options.Project.AgentFile.Spec.Prompt == nil && options.Prompt == nil {
 		return 1, fmt.Errorf("run requires an effective prompt")

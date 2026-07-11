@@ -19,9 +19,6 @@ func entrypointScript(af agentfile.AgentFile, assets *agentfile.ResolvedAssets, 
 	builder.WriteString("  oneshot|tui) ;;\n")
 	builder.WriteString(`  *) echo "agentfile: unsupported run mode $AGENTFILE_RUN_MODE" >&2; exit 64;;` + "\n")
 	builder.WriteString("esac\n")
-	if af.Spec.Harness.Name() != "claudecode" {
-		builder.WriteString(`if [ "$AGENTFILE_RUN_MODE" = tui ]; then echo "agentfile: tui mode supports claudecode harness only" >&2; exit 64; fi` + "\n")
-	}
 	builder.WriteString("\n")
 
 	// The no-colon expansions throughout (?, +) mean only *unset* variables
@@ -170,6 +167,13 @@ exec ` + strings.Join(oneShotArgs, " \\\n  ") + "\n"
 }
 
 func codexEntrypoint() string {
+	args := []string{
+		"--dangerously-bypass-approvals-and-sandbox",
+		"--model \"$AGENTFILE_MODEL\"",
+	}
+	tuiArgs := append([]string{"codex"}, args...)
+	oneShotArgs := append([]string{"codex", "exec", "--skip-git-repo-check"}, args...)
+	oneShotArgs = append(oneShotArgs, "\"$AGENTFILE_PROMPT\"")
 	return `export HOME=/agent/agentfile/codex/home
 export CODEX_HOME=/agent/agentfile/codex/home/.codex
 if [ -n "${CODEX_ACCESS_TOKEN:-}" ]; then
@@ -177,18 +181,19 @@ if [ -n "${CODEX_ACCESS_TOKEN:-}" ]; then
 elif [ -n "${OPENAI_API_KEY:-}" ] && [ -z "${CODEX_API_KEY:-}" ]; then
   export CODEX_API_KEY="$OPENAI_API_KEY"
 fi
-exec codex exec \
-  --skip-git-repo-check \
-  --dangerously-bypass-approvals-and-sandbox \
-  --model "$AGENTFILE_MODEL" \
-  "$AGENTFILE_PROMPT"
-`
+if [ "$AGENTFILE_RUN_MODE" = tui ]; then
+  if [ -n "${CODEX_ACCESS_TOKEN:-}" ]; then
+    printf '%s' "$CODEX_ACCESS_TOKEN" | codex login --with-access-token >/dev/null 2>&1
+  elif [ -n "${CODEX_API_KEY:-}" ]; then
+    printf '%s' "$CODEX_API_KEY" | codex login --with-api-key >/dev/null 2>&1
+  fi
+  exec ` + strings.Join(tuiArgs, " \\\n    ") + `
+fi
+exec ` + strings.Join(oneShotArgs, " \\\n  ") + "\n"
 }
 
 func piEntrypoint(assets *agentfile.ResolvedAssets) string {
 	args := []string{
-		"pi",
-		"-p",
 		"--provider \"$AGENTFILE_PROVIDER\"",
 		"--model \"$AGENTFILE_MODEL\"",
 		"--no-context-files",
@@ -199,9 +204,14 @@ func piEntrypoint(assets *agentfile.ResolvedAssets) string {
 	for _, skill := range assets.Skills {
 		args = append(args, fmt.Sprintf("--skill %s", shQuote("/agent/agentfile/skills/"+skill.Name)))
 	}
-	args = append(args, "\"$AGENTFILE_PROMPT\"")
+	tuiArgs := append([]string{"pi"}, args...)
+	oneShotArgs := append([]string{"pi", "-p"}, args...)
+	oneShotArgs = append(oneShotArgs, "\"$AGENTFILE_PROMPT\"")
 	return `export PI_CODING_AGENT_DIR=/agent/agentfile/pi/home
-exec ` + strings.Join(args, " \\\n  ") + "\n"
+if [ "$AGENTFILE_RUN_MODE" = tui ]; then
+  exec ` + strings.Join(tuiArgs, " \\\n    ") + `
+fi
+exec ` + strings.Join(oneShotArgs, " \\\n  ") + "\n"
 }
 
 func shQuote(value string) string {
