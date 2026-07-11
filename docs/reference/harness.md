@@ -17,11 +17,16 @@ The staged files are implementation input for the harness and the image entrypoi
 
 | Asset | Staged location |
 | --- | --- |
-| Effective agentfile | `/agent/agentfile/agentfile.effective.yaml` |
+| Effective agentfile | `/agent/agentfile/agentfile.effective.json` |
 | Prompt | `/agent/agentfile/prompt.md` |
 | System Prompt | `/agent/agentfile/system-prompt.md` |
 | Skills | `/agent/agentfile/skills/<skill-name>/...` |
 | Harness config | `/agent/agentfile/<harness>/...` |
+
+The effective agentfile is the fully resolved, explicit and complete agentfile serialized as JSON. It is the machine-readable runtime specification for the image.
+
+Harness config files are staged into the image at their `/agent/agentfile/<harness>/` paths with a placeholder token in place of each `runtimeEnv` reference. At container start, the entrypoint reads the effective agentfile and substitutes the tokens with values from the container environment, in place.
+Runtime values never appear in image layers, regardless of harness capabilities.
 
 Harness config files are staged into the image at their `/agent/agentfile/<harness>/` paths with a placeholder token in place of each `runtimeEnv` reference. At container start, the generated entrypoint substitutes the tokens with values from the container environment, in place. A config file without runtime references is final as staged. Runtime values never appear in image layers, regardless of harness capabilities.
 

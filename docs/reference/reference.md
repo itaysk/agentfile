@@ -473,7 +473,7 @@ Discovery populates agentfile assets based on project files automatically at bui
 It is applied after reading the agentfile and before the effective agentfile is used.
 
 Singular assets are discovered only when their `spec` field is absent. List assets append discovered entries after explicit entries.  
-Each discovered asset is represented as an `fs` source in the effective agentfile YAML.
+Each discovered asset is represented as an `fs` source in the effective agentfile JSON.
 
 `prompt.md` discovered as `spec.prompt`.
 `system-prompt.md` is discovered as `spec.systemPrompt`.
@@ -513,13 +513,14 @@ Build steps:
 1. Load the effective agentfile.
 2. Resolve all sources.
 3. Select the base image.
-4. Copy assets into the image.
-5. Write harness configuration according to the [Harness reference](./harness.md).
-6. Set the image entrypoint.
-7. Embed agent fields needed at runtime as labels containing JSON serialized fields. Labels:
+4. Serialize the effective agentfile to `/agent/agentfile/agentfile.effective.json`.
+5. Copy assets into the image.
+6. Write harness configuration according to the [Harness reference](./harness.md).
+7. Set the image entrypoint.
+8. Embed agent fields needed at runtime as labels containing JSON serialized fields. Labels:
   1. `build.agentfile.metadata`
   2. `build.agentfile.runtimeEnv`
-8. Tag the image.
+9. Tag the image.
 
 The image entrypoint runs the selected harness in one-shot mode.  
 The image working directory is `/agent/workspace`.

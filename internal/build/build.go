@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/itaysk/agentfile/internal/agentfile"
-	"gopkg.in/yaml.v3"
 )
 
 type Options struct {
@@ -26,6 +25,15 @@ const (
 	MetadataLabel   = "build.agentfile.metadata"
 	RuntimeEnvLabel = "build.agentfile.runtimeEnv"
 )
+
+type effectiveAgentFile struct {
+	agentfile.AgentFile
+	Resolved effectiveResolvedAssets `json:"resolved"`
+}
+
+type effectiveResolvedAssets struct {
+	Skills []string `json:"skills,omitempty"`
+}
 
 func Build(ctx context.Context, options Options) (string, error) {
 	if options.Project == nil {
@@ -93,11 +101,19 @@ func StageContext(contextDir string, project *agentfile.Project, assets *agentfi
 		return err
 	}
 
-	effective, err := yaml.Marshal(project.AgentFile)
+	skillNames := make([]string, 0, len(assets.Skills))
+	for _, skill := range assets.Skills {
+		skillNames = append(skillNames, skill.Name)
+	}
+	effective, err := json.MarshalIndent(effectiveAgentFile{
+		AgentFile: project.AgentFile,
+		Resolved:  effectiveResolvedAssets{Skills: skillNames},
+	}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal effective agentfile: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentDir, "agentfile.effective.yaml"), effective, 0o644); err != nil {
+	effective = append(effective, '\n')
+	if err := os.WriteFile(filepath.Join(agentDir, "agentfile.effective.json"), effective, 0o644); err != nil {
 		return err
 	}
 	if assets.HasPrompt {

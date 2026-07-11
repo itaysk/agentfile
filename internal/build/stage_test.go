@@ -162,18 +162,25 @@ func TestStageContextWritesCodexRuntimeLayout(t *testing.T) {
 		t.Fatalf("StageContext returned error: %v", err)
 	}
 
-	effective, err := os.ReadFile(filepath.Join(contextDir, "agentfile", "agentfile.effective.yaml"))
+	effective, err := os.ReadFile(filepath.Join(contextDir, "agentfile", "agentfile.effective.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(effective), "name: GITHUB_TOKEN") || !strings.Contains(string(effective), "runtimeEnv:") {
-		t.Fatalf("effective agentfile missing runtimeEnv pointer:\n%s", effective)
+	var got effectiveAgentFile
+	if err := json.Unmarshal(effective, &got); err != nil {
+		t.Fatalf("effective agentfile is invalid JSON: %v\n%s", err, effective)
 	}
-	if !strings.Contains(string(effective), "value: info") {
-		t.Fatalf("effective agentfile missing literal value:\n%s", effective)
+	if got.Spec.Envs[1].RuntimeEnv == nil || got.Spec.Envs[1].RuntimeEnv.Name != "GITHUB_TOKEN" {
+		t.Fatalf("effective runtime env = %#v, want GITHUB_TOKEN", got.Spec.Envs[1])
 	}
-	if strings.Contains(string(effective), "value: null") {
-		t.Fatalf("effective agentfile has value: null for runtime entries:\n%s", effective)
+	if got.Spec.Envs[0].Value == nil || *got.Spec.Envs[0].Value != "info" {
+		t.Fatalf("effective literal env = %#v, want info", got.Spec.Envs[0])
+	}
+	if len(got.Resolved.Skills) != 1 || got.Resolved.Skills[0] != "helper" {
+		t.Fatalf("effective resolved skills = %#v, want helper", got.Resolved.Skills)
+	}
+	if _, err := os.Stat(filepath.Join(contextDir, "agentfile", "agentfile.effective.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("legacy effective YAML still exists: %v", err)
 	}
 	configPath := filepath.Join(contextDir, "agentfile", "codex", "home", ".codex", "config.toml")
 	assertFileContains(t, configPath, "project_doc_max_bytes = 0")
