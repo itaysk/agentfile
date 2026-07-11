@@ -14,6 +14,15 @@ func entrypointScript(af agentfile.AgentFile, assets *agentfile.ResolvedAssets, 
 	var builder strings.Builder
 	builder.WriteString("#!/bin/sh\n")
 	builder.WriteString("set -eu\n\n")
+	builder.WriteString(`AGENTFILE_RUN_MODE=${AGENTFILE_RUN_MODE:-oneshot}` + "\n")
+	builder.WriteString(`case "$AGENTFILE_RUN_MODE" in` + "\n")
+	builder.WriteString("  oneshot|tui) ;;\n")
+	builder.WriteString(`  *) echo "agentfile: unsupported run mode $AGENTFILE_RUN_MODE" >&2; exit 64;;` + "\n")
+	builder.WriteString("esac\n")
+	if af.Spec.Harness.Name() != "claudecode" {
+		builder.WriteString(`if [ "$AGENTFILE_RUN_MODE" = tui ]; then echo "agentfile: tui mode supports claudecode harness only" >&2; exit 64; fi` + "\n")
+	}
+	builder.WriteString("\n")
 
 	// The no-colon expansions throughout (?, +) mean only *unset* variables
 	// trigger guards; a variable set to "" is a value and is used verbatim.
@@ -28,14 +37,15 @@ func entrypointScript(af agentfile.AgentFile, assets *agentfile.ResolvedAssets, 
 	writeRuntimeRender(&builder, af.Spec.ConfigRefNames(), configs)
 
 	writeSpecEnvExports(&builder, af.Spec.Envs)
+	builder.WriteString(`if [ "$AGENTFILE_RUN_MODE" = oneshot ]; then` + "\n")
 	if assets.HasPrompt {
-		builder.WriteString(`if [ -z "${AGENTFILE_PROMPT+x}" ]; then AGENTFILE_PROMPT=`)
+		builder.WriteString(`  if [ -z "${AGENTFILE_PROMPT+x}" ]; then AGENTFILE_PROMPT=`)
 		builder.WriteString(shQuote(assets.Prompt))
 		builder.WriteString("; fi\n")
 	} else {
-		builder.WriteString(`: "${AGENTFILE_PROMPT?agentfile: effective prompt is required}"` + "\n")
+		builder.WriteString(`  : "${AGENTFILE_PROMPT?agentfile: effective prompt is required}"` + "\n")
 	}
-	builder.WriteString("export AGENTFILE_PROMPT\n")
+	builder.WriteString("  export AGENTFILE_PROMPT\nelse\n  unset AGENTFILE_PROMPT\nfi\n")
 	builder.WriteString("AGENTFILE_PROVIDER=")
 	builder.WriteString(shQuote(af.Spec.LLM.ProviderName()))
 	builder.WriteString("\n")
@@ -135,10 +145,7 @@ func configRefNames(content string) []string {
 
 func claudeCodeEntrypoint(af agentfile.AgentFile, assets *agentfile.ResolvedAssets) string {
 	args := []string{
-		"claude",
-		"--print",
 		"--model \"$AGENTFILE_MODEL\"",
-		"--no-session-persistence",
 		"--dangerously-skip-permissions",
 	}
 	if af.Spec.Harness.ClaudeCode != nil && af.Spec.Harness.ClaudeCode.Bare {
@@ -150,10 +157,16 @@ func claudeCodeEntrypoint(af agentfile.AgentFile, assets *agentfile.ResolvedAsse
 	if len(af.Spec.MCPs) > 0 {
 		args = append(args, "--mcp-config /agent/agentfile/claudecode/mcp.json", "--strict-mcp-config")
 	}
-	args = append(args, "\"$AGENTFILE_PROMPT\"")
+	tuiArgs := append([]string{"claude"}, args...)
+	oneShotArgs := append([]string{"claude", "--print"}, args...)
+	oneShotArgs = append(oneShotArgs, "--no-session-persistence", "\"$AGENTFILE_PROMPT\"")
 	return `export HOME=/agent/agentfile/claudecode/home
 export IS_SANDBOX=1
-exec ` + strings.Join(args, " \\\n  ") + "\n"
+export IS_DEMO=1
+if [ "$AGENTFILE_RUN_MODE" = tui ]; then
+  exec ` + strings.Join(tuiArgs, " \\\n    ") + `
+fi
+exec ` + strings.Join(oneShotArgs, " \\\n  ") + "\n"
 }
 
 func codexEntrypoint() string {

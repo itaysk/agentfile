@@ -306,6 +306,63 @@ func TestEntrypointPromptUsesRuntimeOverrideOrBuildDefault(t *testing.T) {
 	}
 }
 
+func TestClaudeEntrypointTUIIsPromptless(t *testing.T) {
+	af := agentfile.AgentFile{Spec: agentfile.Spec{
+		Harness: agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{}},
+		LLM:     agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}},
+	}}
+	script := entrypointScript(af, &agentfile.ResolvedAssets{Prompt: "ignored TUI prompt", HasPrompt: true}, nil)
+	start := strings.LastIndex(script, `if [ "$AGENTFILE_RUN_MODE" = tui ]; then`)
+	end := strings.Index(script[start:], "\nfi\nexec ")
+	if start < 0 || end < 0 {
+		t.Fatalf("entrypoint has no TUI branch:\n%s", script)
+	}
+	tuiBranch := script[start : start+end]
+	for _, unwanted := range []string{"--print", "--no-session-persistence", "AGENTFILE_PROMPT", "ignored TUI prompt"} {
+		if strings.Contains(tuiBranch, unwanted) {
+			t.Fatalf("TUI branch contains %q:\n%s", unwanted, tuiBranch)
+		}
+	}
+	if !strings.Contains(tuiBranch, `--model "$AGENTFILE_MODEL"`) || !strings.Contains(tuiBranch, "--dangerously-skip-permissions") {
+		t.Fatalf("TUI branch is missing Claude configuration:\n%s", tuiBranch)
+	}
+	if !strings.Contains(script, "export IS_DEMO=1\nif") {
+		t.Fatalf("Claude entrypoint does not enable demo mode for every run mode:\n%s", script)
+	}
+	if !strings.Contains(script, "unset AGENTFILE_PROMPT") {
+		t.Fatalf("entrypoint does not clear inherited prompts in TUI mode:\n%s", script)
+	}
+}
+
+func TestEntrypointRejectsUnknownModeAndUnsupportedTUIHarness(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		harness agentfile.Harness
+		llm     agentfile.LLM
+		mode    string
+		want    string
+	}{
+		{
+			name: "unknown mode", harness: agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{}},
+			llm: agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}}, mode: "bad", want: "unsupported run mode bad",
+		},
+		{
+			name: "codex TUI", harness: agentfile.Harness{Codex: &agentfile.EmptyObject{}},
+			llm: agentfile.LLM{OpenAI: &agentfile.ModelProvider{Model: "gpt-5-mini"}}, mode: "tui", want: "tui mode supports claudecode harness only",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			script := entrypointScript(agentfile.AgentFile{Spec: agentfile.Spec{Harness: tt.harness, LLM: tt.llm}}, &agentfile.ResolvedAssets{}, nil)
+			cmd := exec.Command("sh", "-c", script)
+			cmd.Env = append(os.Environ(), "AGENTFILE_RUN_MODE="+tt.mode)
+			output, err := cmd.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), tt.want) {
+				t.Fatalf("entrypoint = (%v, %q), want error containing %q", err, output, tt.want)
+			}
+		})
+	}
+}
+
 func TestClaudeEntrypointBare(t *testing.T) {
 	for _, tt := range []struct {
 		name     string

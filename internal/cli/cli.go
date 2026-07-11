@@ -102,7 +102,7 @@ func runAgents(args []string, stdout, stderr io.Writer) (int, error) {
 
 func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]")
+		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--tui] [--prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]")
 		return 0, nil
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
@@ -110,24 +110,26 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 		return 1, err
 	}
 	runStderr := io.Discard
-	if options.debug {
+	if options.debug || options.tui {
 		runStderr = stderr
 	}
 	// Pull progress goes to real stderr even without --debug: a first pull can
 	// take minutes and stdout stays clean either way.
-	project, image, runtimeEnvNames, err := loadRunSelection(options, stderr)
+	project, image, runtimeEnvNames, harness, err := loadRunSelection(options, stderr)
 	if err != nil {
 		return 1, err
 	}
 	exitCode, err := runner.Run(context.Background(), runner.Options{
 		Project:         project,
 		Image:           image,
+		Harness:         harness,
 		RuntimeEnvNames: runtimeEnvNames,
 		Prompt:          options.prompt,
 		Model:           options.model,
 		Env:             options.env,
 		EnvFiles:        options.envFiles,
 		Workspace:       options.workspace,
+		TUI:             options.tui,
 		Stdout:          stdout,
 		Stderr:          runStderr,
 	})
@@ -226,47 +228,47 @@ func runRemove(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func loadRunSelection(options runFlags, stderr io.Writer) (*agentfile.Project, string, []string, error) {
+func loadRunSelection(options runFlags, stderr io.Writer) (*agentfile.Project, string, []string, string, error) {
 	if options.image != "" {
-		image, runtimeEnvNames, err := loadRunImage(options.image, stderr)
-		return nil, image, runtimeEnvNames, err
+		image, runtimeEnvNames, harness, err := loadRunImage(options.image, stderr)
+		return nil, image, runtimeEnvNames, harness, err
 	}
 	if options.fileSet {
 		project, err := agentfile.Load(options.file)
-		return project, "", nil, err
+		return project, "", nil, "", err
 	}
 	if options.name != "" {
 		registry, err := config.LoadRegistry()
 		if err != nil {
-			return nil, "", nil, err
+			return nil, "", nil, "", err
 		}
 		entry, ok := registry.Agents[options.name]
 		if !ok {
-			return nil, "", nil, fmt.Errorf("agent %q is not registered", options.name)
+			return nil, "", nil, "", fmt.Errorf("agent %q is not registered", options.name)
 		}
 		if entry.Image != "" {
-			image, runtimeEnvNames, err := loadRunImage(entry.Image, stderr)
-			return nil, image, runtimeEnvNames, err
+			image, runtimeEnvNames, harness, err := loadRunImage(entry.Image, stderr)
+			return nil, image, runtimeEnvNames, harness, err
 		}
 		project, err := agentfile.Load(entry.AgentfilePath)
-		return project, "", nil, err
+		return project, "", nil, "", err
 	}
 	project, err := agentfile.Load(agentfile.DefaultFileName)
-	return project, "", nil, err
+	return project, "", nil, "", err
 }
 
-func loadRunImage(image string, stderr io.Writer) (string, []string, error) {
+func loadRunImage(image string, stderr io.Writer) (string, []string, string, error) {
 	ctx := context.Background()
 	info, err := runner.ReadImageInfo(ctx, "", image)
 	if err != nil {
 		if err := runner.PullImage(ctx, "", image, stderr); err != nil {
-			return "", nil, err
+			return "", nil, "", err
 		}
 		if info, err = runner.ReadImageInfo(ctx, "", image); err != nil {
-			return "", nil, err
+			return "", nil, "", err
 		}
 	}
-	return image, info.RuntimeEnvNames, nil
+	return image, info.RuntimeEnvNames, info.Harness, nil
 }
 
 func printHelp(w io.Writer) {
@@ -326,6 +328,7 @@ type runFlags struct {
 	prompt    *string
 	model     string
 	debug     bool
+	tui       bool
 }
 
 // matchStrFlag recognizes "--long value", "short value", "--long=value", and "short=value".
@@ -485,6 +488,8 @@ func parseRunFlags(args []string, options *runFlags) error {
 			options.envFiles = append(options.envFiles, strings.TrimPrefix(arg, "--env-file="))
 		case arg == "--debug":
 			options.debug = true
+		case arg == "--tui":
+			options.tui = true
 		case strings.HasPrefix(arg, "-"):
 			return fmt.Errorf("unknown run argument %q", arg)
 		default:
@@ -502,6 +507,9 @@ func parseRunFlags(args []string, options *runFlags) error {
 	}
 	if options.fileSet && options.name != "" {
 		return fmt.Errorf("NAME and --file cannot be used together")
+	}
+	if options.tui && options.prompt != nil {
+		return fmt.Errorf("--prompt cannot be used with --tui")
 	}
 	return nil
 }

@@ -21,6 +21,9 @@ func TestRunHelpExitsZero(t *testing.T) {
 	if !strings.Contains(stdout.String(), "usage: af run") {
 		t.Fatalf("stdout = %q, want run usage", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "--tui") {
+		t.Fatalf("stdout = %q, want --tui in run usage", stdout.String())
+	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
@@ -87,6 +90,19 @@ func TestParseRunFlagsSupportsPromptOverride(t *testing.T) {
 	}
 	if options.prompt == nil || *options.prompt != "say hi" {
 		t.Fatalf("prompt = %v, want say hi", options.prompt)
+	}
+}
+
+func TestParseRunFlagsSupportsTUIWithoutPrompt(t *testing.T) {
+	options := runFlags{env: map[string]string{}}
+	if err := parseRunFlags([]string{"cc", "--tui"}, &options); err != nil {
+		t.Fatalf("parseRunFlags returned error: %v", err)
+	}
+	if !options.tui {
+		t.Fatal("tui = false, want true")
+	}
+	if err := parseRunFlags([]string{"--tui", "--prompt", "say hi"}, &runFlags{env: map[string]string{}}); err == nil || !strings.Contains(err.Error(), "--prompt cannot be used with --tui") {
+		t.Fatalf("parseRunFlags TUI/prompt error = %v, want conflict", err)
 	}
 }
 
@@ -216,7 +232,7 @@ spec:
     openai:
       model: gpt-5-mini
 `)
-	project, tag, _, err := loadRunSelection(runFlags{name: "alias"}, io.Discard)
+	project, tag, _, _, err := loadRunSelection(runFlags{name: "alias"}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,12 +299,12 @@ func TestRegisterImageListAndRunValidation(t *testing.T) {
 		t.Fatalf("agents list called docker:\n%s", log)
 	}
 
-	project, image, runtimeEnvNames, err := loadRunSelection(runFlags{name: "image-agent"}, io.Discard)
+	project, image, runtimeEnvNames, harness, err := loadRunSelection(runFlags{name: "image-agent"}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project != nil || image != "acme/triage:1.2" || strings.Join(runtimeEnvNames, ",") != "GITHUB_TOKEN" {
-		t.Fatalf("loadRunSelection = (%#v, %q, %#v), want image selection", project, image, runtimeEnvNames)
+	if project != nil || image != "acme/triage:1.2" || strings.Join(runtimeEnvNames, ",") != "GITHUB_TOKEN" || harness != "claudecode" {
+		t.Fatalf("loadRunSelection = (%#v, %q, %#v, %q), want image selection", project, image, runtimeEnvNames, harness)
 	}
 
 	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
@@ -400,7 +416,7 @@ if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
     exit 1
   fi
   cat <<'JSON'
-{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]"}
+{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]","build.agentfile.harness":"claudecode"}
 JSON
   exit 0
 fi

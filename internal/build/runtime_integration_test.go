@@ -91,8 +91,8 @@ func TestRuntimeEnvEndToEnd(t *testing.T) {
 		if err := json.Unmarshal([]byte(labels[RuntimeEnvLabel]), &runtimeEnv); err != nil {
 			t.Fatalf("unmarshal runtimeEnv label: %v", err)
 		}
-		if metadata.Name != project.AgentFile.Metadata.Name || strings.Join(runtimeEnv, ",") != "GITHUB_TOKEN,SEARCH_MCP_AUTH" {
-			t.Fatalf("labels metadata=%#v runtimeEnv=%#v, want built metadata and runtime env names", metadata, runtimeEnv)
+		if metadata.Name != project.AgentFile.Metadata.Name || strings.Join(runtimeEnv, ",") != "GITHUB_TOKEN,SEARCH_MCP_AUTH" || labels[HarnessLabel] != "claudecode" {
+			t.Fatalf("labels metadata=%#v runtimeEnv=%#v harness=%q, want built metadata, runtime env names, and harness", metadata, runtimeEnv, labels[HarnessLabel])
 		}
 	})
 

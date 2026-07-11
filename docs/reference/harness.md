@@ -25,9 +25,6 @@ The staged files are implementation input for the harness and the image entrypoi
 
 The effective agentfile is the fully resolved, explicit and complete agentfile serialized as JSON. It is the machine-readable runtime specification for the image.
 
-Harness config files are staged into the image at their `/agent/agentfile/<harness>/` paths with a placeholder token in place of each `runtimeEnv` reference. At container start, the entrypoint reads the effective agentfile and substitutes the tokens with values from the container environment, in place.
-Runtime values never appear in image layers, regardless of harness capabilities.
-
 Harness config files are staged into the image at their `/agent/agentfile/<harness>/` paths with a placeholder token in place of each `runtimeEnv` reference. At container start, the generated entrypoint substitutes the tokens with values from the container environment, in place. A config file without runtime references is final as staged. Runtime values never appear in image layers, regardless of harness capabilities.
 
 The image entrypoint must:
@@ -35,17 +32,25 @@ The image entrypoint must:
 1. Validate that every runtime variable is provided. Empty string is a value and considered provided.
 2. Substitute placeholder values in the staged harness config files, escaped for the config format (JSON/TOML).
 3. Apply `spec.envs` as default environment variables. `runtimeEnv` entries resolve from their source variable.
-4. Identify and setup runtime overrides to agentfile fields:
-  1. `AGENTFILE_PROMPT` (default to `spec.prompt`)
+4. Select the run mode from `AGENTFILE_RUN_MODE`, defaulting to `oneshot`.
+5. Identify and set up runtime overrides to agentfile fields:
+  1. `AGENTFILE_PROMPT` (one-shot mode only; default to `spec.prompt`)
   2. `AGENTFILE_MODEL` (default to `spec.llm.model`)
-5. Set the harness home and config environment described below.
-6. Run from `/agent/workspace`.
-7. Exit before launching the harness when `AGENTFILE_RENDER_ONLY` is set and non-empty.
-8. Setup harness stdout and stderr streaming.
-9. Invoke harness command with correct flags and variables.
-10. Exit with the harness process exit code.
+6. Set the harness home and config environment described below.
+7. Run from `/agent/workspace`.
+8. Exit before launching the harness when `AGENTFILE_RENDER_ONLY` is set and non-empty.
+9. Set up harness stdout and stderr streaming.
+10. Invoke the run-mode-specific harness command with the correct flags and variables.
+11. Exit with the harness process exit code.
 
-The entrypoint owns the `AGENTFILE_` environment variable namespace: it accepts `AGENTFILE_PROMPT` and `AGENTFILE_MODEL` as run overrides, publishes their effective values along with `AGENTFILE_PROVIDER` and `AGENTFILE_SYSTEM_PROMPT`, reads `AGENTFILE_RENDER_ONLY`, and may use further `AGENTFILE_`-prefixed variables internally (for example during config substitution). This is why agentfile entry names and `runtimeEnv` names must not start with `AGENTFILE_`.
+The entrypoint owns the `AGENTFILE_` environment variable namespace: it accepts `AGENTFILE_PROMPT` and `AGENTFILE_MODEL` as run overrides, reads `AGENTFILE_RUN_MODE` and `AGENTFILE_RENDER_ONLY`, publishes effective values through `AGENTFILE_PROVIDER`, `AGENTFILE_MODEL`, and `AGENTFILE_SYSTEM_PROMPT`, and may use further `AGENTFILE_`-prefixed variables internally. This is why agentfile entry names and `runtimeEnv` names must not start with `AGENTFILE_`.
+
+## Run Modes
+
+`AGENTFILE_RUN_MODE` accepts `oneshot` and `tui`. Unset or empty defaults to `oneshot`; any other value exits with status 64.
+TUI mode is currently supported only by Claude Code. Codex and Pi images reject it with a clear error message.
+
+In TUI mode, the entrypoint does not resolve, require, export, or pass `AGENTFILE_PROMPT`; it unsets an inherited value. The TUI starts without an initial user message.
 
 The entrypoint resolves each runtime variable once and substitutes that single resolution into every config token that references it.
 
@@ -97,7 +102,7 @@ Agentfile does not currently model append-system-prompt behavior. Harness append
 
 ## Prompt
 
-All harnesses must run in one-shot mode and receive the resolved prompt text as the user task.
+In one-shot mode, all harnesses receive the resolved prompt text as the user task. TUI mode ignores `spec.prompt`.
 
 | Harness | One-shot command |
 | --- | --- |
@@ -193,9 +198,10 @@ Runtime environment:
 ```text
 HOME=/agent/agentfile/claudecode/home
 IS_SANDBOX=1
+IS_DEMO=1
 ```
 
-Command:
+One-shot command:
 
 ```bash
 claude \
@@ -208,6 +214,20 @@ claude \
   [--mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config] \
   "$AGENTFILE_PROMPT"
 ```
+
+TUI command:
+
+```bash
+claude \
+  --model "$AGENTFILE_MODEL" \
+  --dangerously-skip-permissions \
+  [--bare] \
+  [--system-prompt-file /agent/agentfile/system-prompt.md] \
+  [--mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config]
+```
+
+The TUI command deliberately omits `--print`, `--no-session-persistence`, and a positional prompt. 
+`IS_DEMO=1` is set which skips Claude Code's onboarding and login wizard.
 
 Flags passed explicitly still apply, and all of the necessary features can be configured with explicit flags except skills.
 

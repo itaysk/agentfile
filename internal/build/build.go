@@ -24,6 +24,7 @@ type Options struct {
 const (
 	MetadataLabel   = "build.agentfile.metadata"
 	RuntimeEnvLabel = "build.agentfile.runtimeEnv"
+	HarnessLabel    = "build.agentfile.harness"
 )
 
 type effectiveAgentFile struct {
@@ -86,6 +87,7 @@ func Build(ctx context.Context, options Options) (string, error) {
 		"-t", tag,
 		"--label", MetadataLabel+"="+string(metadata),
 		"--label", RuntimeEnvLabel+"="+string(runtimeEnv),
+		"--label", HarnessLabel+"="+options.Project.AgentFile.Spec.Harness.Name(),
 		contextDir)
 	cmd.Stdout = options.Stdout
 	cmd.Stderr = options.Stderr

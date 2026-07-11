@@ -71,6 +71,73 @@ func TestRunForwardsRedirectedStdin(t *testing.T) {
 	}
 }
 
+func TestRunTUILaunchesPromptlessClaudeWithTTY(t *testing.T) {
+	dockerPath, logPath := installFakeDocker(t)
+	project := runnerTestProject(t)
+	project.AgentFile.Spec.Harness = agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{}}
+	project.AgentFile.Spec.LLM = agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}}
+	project.AgentFile.Spec.Prompt = nil
+
+	code, err := Run(context.Background(), Options{
+		Project:      project,
+		TUI:          true,
+		Env:          map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "test-token"},
+		DockerBinary: dockerPath,
+		Stdin:        strings.NewReader(""),
+		Stdout:       io.Discard,
+		Stderr:       io.Discard,
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("Run TUI = (%d, %v), want success", code, err)
+	}
+	args := dockerRunArgs(t, logPath)
+	for _, want := range []string{"-it", "-e AGENTFILE_RUN_MODE=tui", "-e CLAUDE_CODE_OAUTH_TOKEN=test-token"} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("docker run args = %q, want %q", args, want)
+		}
+	}
+	if strings.Contains(args, "AGENTFILE_PROMPT") {
+		t.Fatalf("docker run args = %q, want no prompt in TUI mode", args)
+	}
+	if !strings.Contains(dockerLog(t, logPath), "--label build.agentfile.harness=claudecode") {
+		t.Fatalf("docker build log = %q, want harness label", dockerLog(t, logPath))
+	}
+}
+
+func TestRunTUIRejectsPromptAndUnsupportedImages(t *testing.T) {
+	prompt := "not supported"
+	for _, tt := range []struct {
+		name    string
+		options Options
+		want    string
+	}{
+		{
+			name: "prompt",
+			options: Options{
+				Project: runnerTestProject(t), TUI: true, Prompt: &prompt,
+			},
+			want: "--prompt cannot be used with --tui",
+		},
+		{
+			name:    "legacy image",
+			options: Options{Image: "acme/legacy:1", TUI: true},
+			want:    "predates TUI support",
+		},
+		{
+			name:    "codex image",
+			options: Options{Image: "acme/codex:1", Harness: "codex", TUI: true},
+			want:    "currently supports claudecode harness only",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			code, err := Run(context.Background(), tt.options)
+			if code != 1 || err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Run = (%d, %v), want error containing %q", code, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunAddsExtraDockerArgs(t *testing.T) {
 	dockerPath, logPath := installFakeDocker(t)
 	devNull, err := os.Open(os.DevNull)
@@ -236,6 +303,9 @@ func TestReadImageInfoReadsLabelsWithoutPulling(t *testing.T) {
 	if strings.Join(info.RuntimeEnvNames, ",") != "GITHUB_TOKEN" {
 		t.Fatalf("runtime env names = %#v, want GITHUB_TOKEN", info.RuntimeEnvNames)
 	}
+	if info.Harness != "claudecode" {
+		t.Fatalf("harness = %q, want claudecode", info.Harness)
+	}
 
 	t.Setenv("DOCKER_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "fail-once"))
 	if _, err := ReadImageInfo(context.Background(), dockerPath, "acme/triage:1.2"); err == nil {
@@ -268,6 +338,19 @@ func TestReadImageInfoRejectsMissingLabel(t *testing.T) {
 	_, err := ReadImageInfo(context.Background(), dockerPath, "busybox:latest")
 	if err == nil || !strings.Contains(err.Error(), "missing build.agentfile.metadata label") {
 		t.Fatalf("ReadImageInfo error = %v, want missing label", err)
+	}
+}
+
+func TestReadImageInfoAllowsLegacyImageWithoutHarnessLabel(t *testing.T) {
+	dockerPath, _ := installFakeDocker(t)
+	t.Setenv("DOCKER_MISSING_HARNESS_LABEL", "1")
+
+	info, err := ReadImageInfo(context.Background(), dockerPath, "acme/legacy:1")
+	if err != nil {
+		t.Fatalf("ReadImageInfo returned error for legacy image: %v", err)
+	}
+	if info.Harness != "" {
+		t.Fatalf("harness = %q, want empty legacy value", info.Harness)
 	}
 }
 
@@ -333,8 +416,12 @@ if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
     echo '{}'
     exit 0
   fi
+  if [ "${DOCKER_MISSING_HARNESS_LABEL:-}" = "1" ]; then
+    echo '{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]"}'
+    exit 0
+  fi
   cat <<'JSON'
-{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]"}
+{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]","build.agentfile.harness":"claudecode"}
 JSON
   exit 0
 fi

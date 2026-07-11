@@ -27,9 +27,11 @@ type Options struct {
 	Stdout          io.Writer
 	Stderr          io.Writer
 	Image           string
+	Harness         string
 	RuntimeEnvNames []string
 	Prompt          *string
 	Model           string
+	TUI             bool
 	extraDockerArgs []string
 }
 
@@ -37,7 +39,22 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if options.Project == nil && options.Image == "" {
 		return 1, fmt.Errorf("project is required")
 	}
-	if options.Image == "" && options.Project.AgentFile.Spec.Prompt == nil && options.Prompt == nil {
+	harness := options.Harness
+	if options.Project != nil {
+		harness = options.Project.AgentFile.Spec.Harness.Name()
+	}
+	if options.TUI {
+		if options.Prompt != nil {
+			return 1, fmt.Errorf("--prompt cannot be used with --tui")
+		}
+		if harness == "" {
+			return 1, fmt.Errorf("image %q predates TUI support (missing %s label); rebuild it with a current af", options.Image, buildpkg.HarnessLabel)
+		}
+		if harness != "claudecode" {
+			return 1, fmt.Errorf("unsupported combination: --tui currently supports claudecode harness only")
+		}
+	}
+	if !options.TUI && options.Image == "" && options.Project.AgentFile.Spec.Prompt == nil && options.Prompt == nil {
 		return 1, fmt.Errorf("run requires an effective prompt")
 	}
 	if options.DockerBinary == "" {
@@ -68,7 +85,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 			return 1, fmt.Errorf("workspace host path %q is not a directory", workspace)
 		}
 	}
-	forwardStdin := shouldForwardStdin(options.Stdin)
+	forwardStdin := options.TUI || shouldForwardStdin(options.Stdin)
 
 	tag := options.Image
 	if tag == "" {
@@ -86,7 +103,9 @@ func Run(ctx context.Context, options Options) (int, error) {
 	}
 
 	args := []string{"run", "--rm"}
-	if forwardStdin {
+	if options.TUI {
+		args = append(args, "-it")
+	} else if forwardStdin {
 		args = append(args, "-i")
 	}
 	args = append(args, options.extraDockerArgs...)
@@ -98,7 +117,9 @@ func Run(ctx context.Context, options Options) (int, error) {
 		runtimeEnvNames = options.Project.AgentFile.Spec.RuntimeEnvNames()
 	}
 	envs := runEnv(runtimeEnvNames, options.Env)
-	if options.Prompt != nil {
+	if options.TUI {
+		envs["AGENTFILE_RUN_MODE"] = "tui"
+	} else if options.Prompt != nil {
 		envs["AGENTFILE_PROMPT"] = *options.Prompt
 	}
 	if options.Model != "" {
@@ -131,6 +152,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 type ImageInfo struct {
 	Metadata        agentfile.Metadata
 	RuntimeEnvNames []string
+	Harness         string
 }
 
 // ReadImageInfo reads agentfile labels from a local image. It never pulls;
@@ -164,6 +186,7 @@ func ReadImageInfo(ctx context.Context, dockerBinary, ref string) (*ImageInfo, e
 	if err := json.Unmarshal([]byte(runtimeEnvLabel), &info.RuntimeEnvNames); err != nil {
 		return nil, fmt.Errorf("parse %s label from image %q: %w", buildpkg.RuntimeEnvLabel, ref, err)
 	}
+	info.Harness = labels[buildpkg.HarnessLabel]
 	return &info, nil
 }
 

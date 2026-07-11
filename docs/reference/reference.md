@@ -517,12 +517,13 @@ Build steps:
 5. Copy assets into the image.
 6. Write harness configuration according to the [Harness reference](./harness.md).
 7. Set the image entrypoint.
-8. Embed agent fields needed at runtime as labels containing JSON serialized fields. Labels:
+8. Embed agent fields needed at runtime as image labels:
   1. `build.agentfile.metadata`
   2. `build.agentfile.runtimeEnv`
+  3. `build.agentfile.harness`
 9. Tag the image.
 
-The image entrypoint runs the selected harness in one-shot mode.  
+The image entrypoint runs the selected harness in one-shot mode by default.
 The image working directory is `/agent/workspace`.
 
 Build does not require LLM credentials.  
@@ -542,7 +543,7 @@ metadata.name:metadata.version
 Run starts an agent container and prints the agent stdout. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME | --file agentfile.yaml | --image REF] [--prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]
+af agents run [NAME | --file agentfile.yaml | --image REF] [--tui] [--prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]
 ```
 
 Agent selection:
@@ -563,7 +564,7 @@ Run steps:
 3. Bind the workspace if requested.
 4. Pass runtime environment variables.
 5. Start the container.
-6. Print the agent stdout.
+6. Print the agent stdout, or attach the terminal in TUI mode.
 7. Exit with the container exit code.
 
 `--workspace PATH` binds `PATH` to `/agent/workspace`. `PATH` must be an existing directory. Relative paths are resolved from the current working directory.  
@@ -573,7 +574,7 @@ Run steps:
 
 `--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
 `--env-file FILE` loads environment variables from an `.env` file.
-`--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result. Image pull progress is always printed to stderr, with or without `--debug`.
+`--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result. TUI mode always attaches stderr and shows build progress. Image pull progress is always printed to stderr.
 
 Every variable referenced by a `runtimeEnv` field in the spec is set automatically when present on host. See [Runtime Variables](#runtime-variables) for details.
 
@@ -583,11 +584,23 @@ When the run command receives piped input on stdin, that input is forwarded to t
 tail -200 app.log | af run log-triage
 ```
 
+#### TUI Mode
+
+`--tui` opens the harness's native interactive terminal. Claude Code runs with `IS_DEMO=1` in both one-shot and TUI modes, which skips first-run onboarding and hides account and organization identity; authentication still comes from runtime credentials such as `CLAUDE_CODE_OAUTH_TOKEN`.
+
+```bash
+af run code-review --tui --workspace .
+```
+
+TUI mode is currently supported only for the `claudecode` harness. It starts without an initial user message: `spec.prompt` is ignored, and `--prompt` cannot be combined with `--tui`.
+
+For image-based selection, TUI mode requires the `build.agentfile.harness` label added by current Agentfile builds.
+
 #### Field Overrides
 
 Run supports overriding certain agentfile fields:
 
-- `--prompt` field or `AGENTFILE_PROMPT` environment variable replaces the image's default prompt. It can also supply the prompt when the agentfile does not define one.
+- `--prompt` or `AGENTFILE_PROMPT` replaces the image's default prompt in one-shot mode. It can also supply the prompt when the agentfile does not define one.
 - `--model` fields or `AGENTFILE_MODEL` environment variable replaces the image's default model. The provider remains the one declared in the agentfile.
 
 These values are passed to the container at runtime. They do not modify the effective agentfile or the image. Other agentfile fields cannot be overridden.
@@ -679,8 +692,14 @@ Use a bind mount for workspace input and output:
 docker run --rm -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:latest
 ```
 
+Open the Claude Code TUI by allocating a terminal and selecting `tui` mode:
+
+```bash
+docker run --rm -it -e AGENTFILE_RUN_MODE=tui -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:latest
+```
+
 ## Security
 
-Agentfile agents are unattended processes and cannot interactively ask for approvals. They also assumed to run in conatiners which provide a natural isolation boundary. Therefore the harness runs with permission and approval gates disabled by default, the agent can read, write, and execute freely inside its container without asking. Additional isolation can be added at deploy-time using container runtime security features.
+Agentfile agents run in containers, which provide their isolation boundary. Harness permission and approval gates are disabled in both one-shot and TUI modes, so the agent can read, write, and execute freely inside its container without asking. Additional isolation can be added at deploy time using container runtime security features.
 
 Secrets should use `runtimeEnv` and be provided at run time. See [Runtime Variables](#runtime-variables).
