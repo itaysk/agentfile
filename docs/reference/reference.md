@@ -598,18 +598,18 @@ For image-based selection, TUI mode requires the `build.agentfile.harness` label
 
 #### ACP Mode
 
-`--acp` turns `af` into an [Agent Client Protocol](https://agentclientprotocol.com) v1 server on its stdin and stdout. Configure an ACP client to spawn the command directly. ACP currently supports Claude Code only.
+`--acp` flag allows integrating the agent with an [Agent Client Protocol](https://agentclientprotocol.com)-compatible client. This allows you to use your agents with your IDE, Terminal or agent management UI.  
+Configuration varies based on client - where client asks for a command to run, supply the `af run` command that runs your agents, and add the `--acp` flag.
 
-`session/new` starts an agent container.
 the ACP client supplies a workspace for each session. The request's absolute `cwd` is mounted at `/agent/workspace`. `--workspace` and `--ws` are not supported with `--acp`.
+
 the ACP client supplies the user input. Prompt `spec.prompt` and `--prompt` is ignored in ACP mode.
 
-The bridge accepts text and resource-link prompts and supports streamed messages, thoughts, tool calls, cancellation, and close. It does not advertise other ACP features.
+The ACP bridge accepts text and resource-link prompts and supports streamed messages, thoughts, tool calls, cancellation, and close. It does not advertise other ACP features.
+
 File resource links inside the session workspace are translated to their `/agent/workspace` paths.
 
 Client-provided MCP servers are rejected since MCP server definition and configuration belong in the agentfile.
-
-`session/close` stops the agent container. Disconnecting the client stops all remaining containers.
 
 #### Field Overrides
 
@@ -713,11 +713,7 @@ Run interactive agent:
 docker run --rm -it -e AGENTFILE_RUN_MODE=tui -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:latest
 ```
 
-Run ACP agent:
-
-```bash
-docker run --rm -it -e AGENTFILE_RUN_MODE=acp -e ANTHROPIC_API_KEY hello-world:latest
-```
+You cannot run an agent in ACP mode directly with docker run, since the agent image isn't aware of ACP protocol. The protocol translation is handled by the `af run --acp` command.
 
 ## Security
 

@@ -126,34 +126,110 @@ func TestRunACPStreamsClaudeSession(t *testing.T) {
 	}
 }
 
+func TestRunACPStreamsCodexAndPiSessions(t *testing.T) {
+	for _, harness := range []string{"codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			docker, logPath := installFakeACPDocker(t)
+			inputLog := filepath.Join(t.TempDir(), harness+"-input.log")
+			t.Setenv("ACP_INPUT_LOG", inputLog)
+			process := startACPTestProcess(t, Options{
+				Image:        "acme/" + harness + ":latest",
+				Harness:      harness,
+				DockerBinary: docker,
+				Stderr:       io.Discard,
+			})
+			process.send(t, 1, "initialize", map[string]any{"protocolVersion": 1})
+			process.response(t, 1)
+			process.send(t, 2, "session/new", map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}})
+			sessionID := process.response(t, 2)["result"].(map[string]any)["sessionId"].(string)
+			process.send(t, 3, "session/prompt", map[string]any{
+				"sessionId": sessionID,
+				"prompt":    []any{map[string]any{"type": "text", "text": "hello"}},
+			})
+
+			var messages, thoughts, tools, completed int
+			for {
+				message := process.receive(t)
+				if message["id"] == float64(3) {
+					if got := message["result"].(map[string]any)["stopReason"]; got != "end_turn" {
+						t.Fatalf("prompt stopReason = %v, want end_turn", got)
+					}
+					break
+				}
+				update := message["params"].(map[string]any)["update"].(map[string]any)
+				switch update["sessionUpdate"] {
+				case "agent_message_chunk":
+					messages++
+				case "agent_thought_chunk":
+					thoughts++
+				case "tool_call":
+					tools++
+				case "tool_call_update":
+					if update["status"] == "completed" {
+						completed++
+					}
+				}
+			}
+			if messages != 1 || thoughts != 1 || tools != 1 || completed != 1 {
+				t.Fatalf("updates = messages:%d thoughts:%d tools:%d completed:%d, want 1 each", messages, thoughts, tools, completed)
+			}
+			process.send(t, 4, "session/prompt", map[string]any{
+				"sessionId": sessionID,
+				"prompt":    []any{map[string]any{"type": "text", "text": "follow up"}},
+			})
+			if got := process.response(t, 4)["result"].(map[string]any)["stopReason"]; got != "end_turn" {
+				t.Fatalf("follow-up stopReason = %v, want end_turn", got)
+			}
+			process.send(t, 5, "session/close", map[string]any{"sessionId": sessionID})
+			process.response(t, 5)
+			process.close(t)
+			if !strings.Contains(dockerLog(t, logPath), "acme/"+harness+":latest") {
+				t.Fatalf("docker log does not contain harness image:\n%s", dockerLog(t, logPath))
+			}
+			input, err := os.ReadFile(inputLog)
+			if err != nil || !strings.Contains(string(input), "hello") {
+				t.Fatalf("%s input = %q, %v; want prompt", harness, input, err)
+			}
+		})
+	}
+}
+
 func TestRunACPCancelsWithoutStoppingSession(t *testing.T) {
-	docker, _ := installFakeACPDocker(t)
-	t.Setenv("ACP_WAIT_INTERRUPT", "1")
-	userSeen := filepath.Join(t.TempDir(), "user-seen")
-	t.Setenv("ACP_USER_SEEN_FILE", userSeen)
-	process := startACPTestProcess(t, Options{Image: "acme/claude:latest", Harness: "claudecode", DockerBinary: docker, Stderr: io.Discard})
-	process.send(t, 1, "initialize", map[string]any{"protocolVersion": 1})
-	process.response(t, 1)
-	process.send(t, 2, "session/new", map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}})
-	sessionID := process.response(t, 2)["result"].(map[string]any)["sessionId"].(string)
-	process.send(t, 3, "session/prompt", map[string]any{"sessionId": sessionID, "prompt": []any{map[string]any{"type": "text", "text": "wait"}}})
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(userSeen); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for Claude prompt input")
-		}
-		time.Sleep(time.Millisecond)
+	for _, tt := range []struct{ harness, image string }{
+		{"claudecode", "acme/claude:latest"},
+		{"codex", "acme/codex:latest"},
+		{"pi", "acme/pi:latest"},
+	} {
+		t.Run(tt.harness, func(t *testing.T) {
+			docker, _ := installFakeACPDocker(t)
+			t.Setenv("ACP_WAIT_INTERRUPT", "1")
+			userSeen := filepath.Join(t.TempDir(), "user-seen")
+			t.Setenv("ACP_USER_SEEN_FILE", userSeen)
+			process := startACPTestProcess(t, Options{Image: tt.image, Harness: tt.harness, DockerBinary: docker, Stderr: io.Discard})
+			process.send(t, 1, "initialize", map[string]any{"protocolVersion": 1})
+			process.response(t, 1)
+			process.send(t, 2, "session/new", map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}})
+			sessionID := process.response(t, 2)["result"].(map[string]any)["sessionId"].(string)
+			process.send(t, 3, "session/prompt", map[string]any{"sessionId": sessionID, "prompt": []any{map[string]any{"type": "text", "text": "wait"}}})
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if _, err := os.Stat(userSeen); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("timed out waiting for %s prompt input", tt.harness)
+				}
+				time.Sleep(time.Millisecond)
+			}
+			process.notify(t, "session/cancel", map[string]any{"sessionId": sessionID})
+			if got := process.response(t, 3)["result"].(map[string]any)["stopReason"]; got != "cancelled" {
+				t.Fatalf("prompt stopReason = %v, want cancelled", got)
+			}
+			process.send(t, 4, "session/close", map[string]any{"sessionId": sessionID})
+			process.response(t, 4)
+			process.close(t)
+		})
 	}
-	process.notify(t, "session/cancel", map[string]any{"sessionId": sessionID})
-	if got := process.response(t, 3)["result"].(map[string]any)["stopReason"]; got != "cancelled" {
-		t.Fatalf("prompt stopReason = %v, want cancelled", got)
-	}
-	process.send(t, 4, "session/close", map[string]any{"sessionId": sessionID})
-	process.response(t, 4)
-	process.close(t)
 }
 
 func TestRunACPBuildsPromptlessClaude(t *testing.T) {
@@ -204,14 +280,14 @@ func TestRunACPDoesNotMisdiagnoseUsageErrorAsOldImage(t *testing.T) {
 	process.close(t)
 }
 
-func TestRunACPRejectsUnsupportedHarnessAndOverrides(t *testing.T) {
+func TestRunACPRejectsUnknownHarnessAndOverrides(t *testing.T) {
 	prompt := "no"
 	for _, tt := range []struct {
 		name    string
 		options Options
 		want    string
 	}{
-		{name: "codex", options: Options{Image: "codex", Harness: "codex"}, want: "only Claude Code"},
+		{name: "unknown", options: Options{Image: "unknown", Harness: "unknown"}, want: "does not support harness"},
 		{name: "legacy", options: Options{Image: "legacy"}, want: "missing build.agentfile.harness"},
 		{name: "prompt", options: Options{Image: "claude", Harness: "claudecode", Prompt: &prompt}, want: "--prompt cannot"},
 		{name: "workspace", options: Options{Image: "claude", Harness: "claudecode", Workspace: "/tmp"}, want: "--workspace cannot"},
@@ -337,6 +413,64 @@ if [ "${ACP_USAGE_ERROR:-}" = 1 ]; then
   echo 'agentfile: ACP_TOKEN must not contain newlines' >&2
   exit 64
 fi
+case "$*" in
+  *codex*)
+    while IFS= read -r line; do
+      if [ -n "${ACP_INPUT_LOG:-}" ]; then printf '%s\n' "$line" >> "$ACP_INPUT_LOG"; fi
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+      case "$line" in
+        *'"method":"initialize"'*)
+          printf '{"id":"%s","result":{"userAgent":"test"}}\n' "$id"
+          ;;
+        *'"method":"thread/start"'*)
+          printf '{"id":"%s","result":{"thread":{"id":"thread-1"}}}\n' "$id"
+          ;;
+        *'"method":"turn/start"'*)
+          printf '{"id":"%s","result":{"turn":{"id":"turn-1","status":"inProgress","items":[]}}}\n' "$id"
+          printf '%s\n' '{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}}'
+          if [ -n "${ACP_USER_SEEN_FILE:-}" ]; then : > "$ACP_USER_SEEN_FILE"; fi
+          if [ -n "${ACP_WAIT_INTERRUPT:-}" ]; then continue; fi
+          printf '%s\n' '{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"reason-1","summaryIndex":0,"delta":"Thinking"}}'
+          printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"message-1","delta":"Hi"}}'
+          printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","startedAtMs":1,"item":{"id":"tool-1","type":"commandExecution","command":"pwd","cwd":"/agent/workspace","commandActions":[],"status":"inProgress"}}}'
+          printf '%s\n' '{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"tool-1","delta":"/agent/workspace\n"}}'
+          printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":2,"item":{"id":"tool-1","type":"commandExecution","command":"pwd","cwd":"/agent/workspace","commandActions":[],"status":"completed","aggregatedOutput":"/agent/workspace\n","exitCode":0}}}'
+          printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","items":[]}}}'
+          ;;
+        *'"method":"turn/interrupt"'*)
+          printf '{"id":"%s","result":{}}\n' "$id"
+          printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted","items":[]}}}'
+          ;;
+      esac
+    done
+    exit 0
+    ;;
+  *'/pi:'*)
+    while IFS= read -r line; do
+      if [ -n "${ACP_INPUT_LOG:-}" ]; then printf '%s\n' "$line" >> "$ACP_INPUT_LOG"; fi
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+      case "$line" in
+        *'"type":"prompt"'*)
+          printf '{"id":"%s","type":"response","command":"prompt","success":true}\n' "$id"
+          if [ -n "${ACP_USER_SEEN_FILE:-}" ]; then : > "$ACP_USER_SEEN_FILE"; fi
+          if [ -n "${ACP_WAIT_INTERRUPT:-}" ]; then continue; fi
+          printf '%s\n' '{"type":"agent_start"}'
+          printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"Thinking"}}'
+          printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Hi"}}'
+          printf '%s\n' '{"type":"tool_execution_start","toolCallId":"tool-1","toolName":"read","args":{"path":"README.md"}}'
+          printf '%s\n' '{"type":"tool_execution_update","toolCallId":"tool-1","toolName":"read","partialResult":{"content":[{"type":"text","text":"partial"}]}}'
+          printf '%s\n' '{"type":"tool_execution_end","toolCallId":"tool-1","toolName":"read","result":{"content":[{"type":"text","text":"contents"}]},"isError":false}'
+          printf '%s\n' '{"type":"agent_end","messages":[],"willRetry":false}'
+          ;;
+        *'"type":"abort"'*)
+          printf '{"id":"%s","type":"response","command":"abort","success":true}\n' "$id"
+          printf '%s\n' '{"type":"agent_end","messages":[],"willRetry":false}'
+          ;;
+      esac
+    done
+    exit 0
+    ;;
+esac
 while IFS= read -r line; do
   if [ -n "${ACP_INPUT_LOG:-}" ]; then printf '%s\n' "$line" >> "$ACP_INPUT_LOG"; fi
   case "$line" in

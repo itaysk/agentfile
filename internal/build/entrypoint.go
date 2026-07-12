@@ -16,11 +16,7 @@ func entrypointScript(af agentfile.AgentFile, assets *agentfile.ResolvedAssets, 
 	builder.WriteString("set -eu\n\n")
 	builder.WriteString(`AGENTFILE_RUN_MODE=${AGENTFILE_RUN_MODE:-oneshot}` + "\n")
 	builder.WriteString(`case "$AGENTFILE_RUN_MODE" in` + "\n")
-	modes := "oneshot|tui"
-	if af.Spec.Harness.Name() == "claudecode" {
-		modes += "|acp"
-	}
-	builder.WriteString("  " + modes + ") ;;\n")
+	builder.WriteString("  oneshot|tui|acp) ;;\n")
 	builder.WriteString(`  *) echo "agentfile: unsupported run mode $AGENTFILE_RUN_MODE" >&2; exit 64;;` + "\n")
 	builder.WriteString("esac\n")
 	builder.WriteString("\n")
@@ -181,6 +177,8 @@ func codexEntrypoint() string {
 		"--model \"$AGENTFILE_MODEL\"",
 	}
 	tuiArgs := append([]string{"codex"}, args...)
+	acpArgs := append([]string{"codex"}, args...)
+	acpArgs = append(acpArgs, "app-server")
 	oneShotArgs := append([]string{"codex", "exec", "--skip-git-repo-check"}, args...)
 	oneShotArgs = append(oneShotArgs, "\"$AGENTFILE_PROMPT\"")
 	return `export HOME=/agent/agentfile/codex/home
@@ -190,13 +188,18 @@ if [ -n "${CODEX_ACCESS_TOKEN:-}" ]; then
 elif [ -n "${OPENAI_API_KEY:-}" ] && [ -z "${CODEX_API_KEY:-}" ]; then
   export CODEX_API_KEY="$OPENAI_API_KEY"
 fi
-if [ "$AGENTFILE_RUN_MODE" = tui ]; then
+if [ "$AGENTFILE_RUN_MODE" != oneshot ]; then
   if [ -n "${CODEX_ACCESS_TOKEN:-}" ]; then
     printf '%s' "$CODEX_ACCESS_TOKEN" | codex login --with-access-token >/dev/null 2>&1
   elif [ -n "${CODEX_API_KEY:-}" ]; then
     printf '%s' "$CODEX_API_KEY" | codex login --with-api-key >/dev/null 2>&1
   fi
+fi
+if [ "$AGENTFILE_RUN_MODE" = tui ]; then
   exec ` + strings.Join(tuiArgs, " \\\n    ") + `
+fi
+if [ "$AGENTFILE_RUN_MODE" = acp ]; then
+  exec ` + strings.Join(acpArgs, " \\\n    ") + `
 fi
 exec ` + strings.Join(oneShotArgs, " \\\n  ") + "\n"
 }
@@ -214,11 +217,15 @@ func piEntrypoint(assets *agentfile.ResolvedAssets) string {
 		args = append(args, fmt.Sprintf("--skill %s", shQuote("/agent/agentfile/skills/"+skill.Name)))
 	}
 	tuiArgs := append([]string{"pi"}, args...)
+	acpArgs := append([]string{"pi", "--mode", "rpc"}, args...)
 	oneShotArgs := append([]string{"pi", "-p"}, args...)
 	oneShotArgs = append(oneShotArgs, "\"$AGENTFILE_PROMPT\"")
 	return `export PI_CODING_AGENT_DIR=/agent/agentfile/pi/home
 if [ "$AGENTFILE_RUN_MODE" = tui ]; then
   exec ` + strings.Join(tuiArgs, " \\\n    ") + `
+fi
+if [ "$AGENTFILE_RUN_MODE" = acp ]; then
+  exec ` + strings.Join(acpArgs, " \\\n    ") + `
 fi
 exec ` + strings.Join(oneShotArgs, " \\\n  ") + "\n"
 }

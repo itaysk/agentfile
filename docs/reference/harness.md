@@ -47,13 +47,14 @@ The entrypoint owns the `AGENTFILE_` environment variable namespace: it accepts 
 
 ## Run Modes
 
-`AGENTFILE_RUN_MODE` accepts `oneshot`, `tui` and `acp` modes. Unset or empty defaults to `oneshot`. unsupported values exit with status 64.
-`acp` is currently supported only for Claude Code.
+`AGENTFILE_RUN_MODE` accepts `oneshot`, `tui` and `acp` modes. Unset or empty defaults to `oneshot`. Unsupported values exit with status 64.
 
 In TUI and ACP modes, the entrypoint does not resolve, require, export, or pass `AGENTFILE_PROMPT`; it unsets an inherited value. Both modes start without an initial user message.
 
-ACP mode exposes the harness's native stream protocol on container stdin and stdout. ACP JSON-RPC translation remains in the host-side `af` process, not the image.  
-In ACP mode, `af run --acp` starts the host-side bridge and prepares the image without starting a container. After protocol initialization, each `session/new` request creats a container.
+ACP mode exposes the selected harness's native stream protocol on container stdin and stdout. ACP JSON-RPC translation remains in the host-side `af` process, not the image.  
+In ACP mode, `af run --acp` starts the host-side bridge and prepares the image without starting a container.  
+After protocol initialization, each `session/new` request creates a container.  
+`session/close` stops the agent container. Disconnecting the client stops all remaining containers.
 
 The entrypoint resolves each runtime variable once and substitutes that single resolution into every config token that references it.
 
@@ -312,6 +313,15 @@ codex \
 
 The TUI command omits the `exec` subcommand, `--skip-git-repo-check`, and a positional prompt.
 
+ACP stream command:
+
+```bash
+codex \
+  --dangerously-bypass-approvals-and-sandbox \
+  --model "$AGENTFILE_MODEL" \
+  app-server
+```
+
 Codex reads generated system prompt, MCP, and other adapter config from `$CODEX_HOME/config.toml`. The generated config sets `project_doc_max_bytes = 0` so workspace `AGENTS.md` files do not change the packaged agent behavior, and marks `/agent/workspace` as trusted so the TUI does not prompt before opening it.
 
 ### Pi
@@ -350,6 +360,18 @@ pi \
 
 The TUI command omits `-p` and a positional prompt.
 
+ACP stream command:
+
+```bash
+pi \
+  --mode rpc \
+  --provider "$AGENTFILE_PROVIDER" \
+  --model "$AGENTFILE_MODEL" \
+  --no-context-files \
+  [--system-prompt "$AGENTFILE_SYSTEM_PROMPT"] \
+  [--skill /agent/agentfile/skills/<skill-name> ...]
+```
+
 `--no-context-files` prevents workspace `AGENTS.md` and `CLAUDE.md` files from changing the packaged agent behavior. Skills declared by the agentfile are still loaded through explicit `--skill` flags.
 
 ## Upstream References
@@ -366,5 +388,7 @@ These upstream harnesses change frequently. When their documented flags or confi
 - Codex configuration: <https://developers.openai.com/codex/config-advanced>
 - Codex skills: <https://developers.openai.com/codex/skills>
 - Codex MCP: <https://developers.openai.com/codex/mcp>
+- Codex app-server: <https://developers.openai.com/codex/app-server>
 - Pi usage: <https://pi.dev/docs/latest/usage>
 - Pi providers: <https://pi.dev/docs/latest/providers>
+- Pi RPC: <https://pi.dev/docs/latest/rpc>

@@ -333,7 +333,8 @@ func TestEntrypointsTUIArePromptless(t *testing.T) {
 			name: "codex", harness: agentfile.Harness{Codex: &agentfile.EmptyObject{}},
 			llm:      agentfile.LLM{OpenAI: &agentfile.ModelProvider{Model: "gpt-5-mini"}},
 			unwanted: []string{"codex exec", "--skip-git-repo-check"},
-			wanted:   []string{"exec codex", `--model "$AGENTFILE_MODEL"`, "--dangerously-bypass-approvals-and-sandbox", "codex login --with-access-token", "codex login --with-api-key"},
+			wanted:   []string{"exec codex", `--model "$AGENTFILE_MODEL"`, "--dangerously-bypass-approvals-and-sandbox"},
+			script:   []string{"codex login --with-access-token", "codex login --with-api-key"},
 		},
 		{
 			name: "pi", harness: agentfile.Harness{Pi: &agentfile.EmptyObject{}},
@@ -402,20 +403,30 @@ func TestClaudeEntrypointACP(t *testing.T) {
 	}
 }
 
-func TestNonClaudeEntrypointsRejectACP(t *testing.T) {
-	for _, harness := range []agentfile.Harness{
-		{Codex: &agentfile.EmptyObject{}},
-		{Pi: &agentfile.EmptyObject{}},
+func TestCodexAndPiEntrypointsACP(t *testing.T) {
+	for _, tt := range []struct {
+		harness agentfile.Harness
+		want    []string
+	}{
+		{agentfile.Harness{Codex: &agentfile.EmptyObject{}}, []string{"exec codex", "app-server", "--dangerously-bypass-approvals-and-sandbox"}},
+		{agentfile.Harness{Pi: &agentfile.EmptyObject{}}, []string{"exec pi", "--mode", "rpc", "--no-context-files"}},
 	} {
+		harness := tt.harness
 		af := agentfile.AgentFile{Spec: agentfile.Spec{
 			Harness: harness,
 			LLM:     agentfile.LLM{OpenAI: &agentfile.ModelProvider{Model: "gpt-5-mini"}},
 		}}
-		cmd := exec.Command("sh", "-c", entrypointScript(af, &agentfile.ResolvedAssets{}, nil))
-		cmd.Env = append(os.Environ(), "AGENTFILE_RUN_MODE=acp")
-		output, err := cmd.CombinedOutput()
-		if err == nil || !strings.Contains(string(output), "unsupported run mode acp") {
-			t.Fatalf("%s ACP entrypoint = (%v, %q), want unsupported-mode error", harness.Name(), err, output)
+		script := entrypointScript(af, &agentfile.ResolvedAssets{}, nil)
+		start := strings.LastIndex(script, `if [ "$AGENTFILE_RUN_MODE" = acp ]; then`)
+		if start < 0 {
+			t.Fatalf("%s entrypoint has no ACP branch:\n%s", harness.Name(), script)
+		}
+		branch := script[start:]
+		branch = branch[:strings.Index(branch, "\nfi\n")]
+		for _, want := range tt.want {
+			if !strings.Contains(branch, want) {
+				t.Fatalf("%s ACP branch does not contain %q:\n%s", harness.Name(), want, branch)
+			}
 		}
 	}
 }

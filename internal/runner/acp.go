@@ -19,20 +19,21 @@ import (
 	"github.com/coder/acp-go-sdk"
 )
 
-const claudeMessageLimit = 16 << 20
+const harnessMessageLimit = 16 << 20
 
 type acpBridge struct {
 	ctx     context.Context
 	options Options
 	image   string
+	harness string
 	conn    *acp.AgentSideConnection
 	ready   chan struct{}
 
 	mu       sync.Mutex
-	sessions map[acp.SessionId]*claudeSession
+	sessions map[acp.SessionId]*acpSession
 }
 
-type claudeSession struct {
+type acpSession struct {
 	bridge    *acpBridge
 	id        acp.SessionId
 	container string
@@ -42,6 +43,8 @@ type claudeSession struct {
 	scanner   *bufio.Scanner
 	stderr    *prefixBuffer
 	done      chan error
+	threadID  string
+	turnID    string
 
 	writeMu sync.Mutex
 	mu      sync.Mutex
@@ -50,9 +53,12 @@ type claudeSession struct {
 	stop    sync.Once
 }
 
-type claudeTurn struct {
-	seen  map[int]bool
-	tools map[int]*claudeTool
+type acpTurn struct {
+	seen      map[int]bool
+	tools     map[int]*claudeTool
+	requestID string
+	stop      acp.StopReason
+	err       string
 }
 
 type claudeTool struct {
@@ -84,8 +90,8 @@ func runACP(ctx context.Context, options Options) (int, error) {
 	if harness == "" {
 		return 1, fmt.Errorf("image %q predates interactive support (missing build.agentfile.harness label); rebuild it with a current af", options.Image)
 	}
-	if harness != "claudecode" {
-		return 1, fmt.Errorf("--acp currently supports only Claude Code; image uses %s", harness)
+	if harness != "claudecode" && harness != "codex" && harness != "pi" {
+		return 1, fmt.Errorf("--acp does not support harness %s", harness)
 	}
 	image, err := resolveRunImage(ctx, options)
 	if err != nil {
@@ -95,8 +101,9 @@ func runACP(ctx context.Context, options Options) (int, error) {
 		ctx:      ctx,
 		options:  options,
 		image:    image,
+		harness:  harness,
 		ready:    make(chan struct{}),
-		sessions: map[acp.SessionId]*claudeSession{},
+		sessions: map[acp.SessionId]*acpSession{},
 	}
 	conn := acp.NewAgentSideConnection(bridge, options.Stdout, options.Stdin)
 	bridge.conn = conn
@@ -156,13 +163,14 @@ func (a *acpBridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.P
 	if !ok {
 		return acp.PromptResponse{}, acp.NewInvalidParams(map[string]any{"error": "unknown session"})
 	}
-	content := make([]map[string]any, 0, len(params.Prompt))
+	content := make([]any, 0, len(params.Prompt))
 	for _, block := range params.Prompt {
 		switch {
 		case block.Text != nil:
 			content = append(content, map[string]any{"type": "text", "text": block.Text.Text})
 		case block.ResourceLink != nil:
-			content = append(content, map[string]any{"type": "text", "text": resourceLinkText(block.ResourceLink, s.cwd)})
+			text := resourceLinkText(block.ResourceLink, s.cwd)
+			content = append(content, map[string]any{"type": "text", "text": text})
 		default:
 			return acp.PromptResponse{}, acp.NewInvalidParams(map[string]any{"error": "only text and resource_link prompt blocks are supported"})
 		}
@@ -171,12 +179,8 @@ func (a *acpBridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.P
 		return acp.PromptResponse{}, acp.NewInvalidRequest(map[string]any{"error": "session already has an active prompt"})
 	}
 	defer s.endPrompt()
-	if err := s.write(map[string]any{
-		"type":               "user",
-		"message":            map[string]any{"role": "user", "content": content},
-		"parent_tool_use_id": nil,
-		"session_id":         "default",
-	}); err != nil {
+	turn := acpTurn{seen: map[int]bool{}, tools: map[int]*claudeTool{}, stop: acp.StopReasonEndTurn}
+	if err := s.sendPrompt(&turn, content); err != nil {
 		a.dropSession(s)
 		return acp.PromptResponse{}, acp.NewInternalError(map[string]any{"error": err.Error()})
 	}
@@ -184,7 +188,6 @@ func (a *acpBridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.P
 		_ = s.interrupt()
 	}
 
-	turn := claudeTurn{seen: map[int]bool{}, tools: map[int]*claudeTool{}}
 	for {
 		message, err := s.read()
 		if err != nil {
@@ -249,7 +252,7 @@ func (a *acpBridge) SetSessionMode(context.Context, acp.SetSessionModeRequest) (
 	return acp.SetSessionModeResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetMode)
 }
 
-func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*claudeSession, error) {
+func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*acpSession, error) {
 	envs := runEnv(a.options.RuntimeEnvNames, a.options.Env)
 	if len(a.options.RuntimeEnvNames) == 0 && a.options.Project != nil {
 		envs = runEnv(a.options.Project.AgentFile.Spec.RuntimeEnvNames(), a.options.Env)
@@ -276,7 +279,7 @@ func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*claudeSession, 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start ACP container: %w", err)
 	}
-	s := &claudeSession{
+	s := &acpSession{
 		bridge:    a,
 		id:        id,
 		container: container,
@@ -287,7 +290,7 @@ func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*claudeSession, 
 		stderr:    stderr,
 		done:      make(chan error, 1),
 	}
-	s.scanner.Buffer(make([]byte, 64<<10), claudeMessageLimit)
+	s.scanner.Buffer(make([]byte, 64<<10), harnessMessageLimit)
 	go func() { s.done <- cmd.Wait() }()
 	if err := s.initialize(); err != nil {
 		s.close()
@@ -296,7 +299,20 @@ func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*claudeSession, 
 	return s, nil
 }
 
-func (s *claudeSession) initialize() error {
+func (s *acpSession) initialize() error {
+	switch s.bridge.harness {
+	case "claudecode":
+		return s.initializeClaude()
+	case "codex":
+		return s.initializeCodex()
+	case "pi":
+		return nil
+	default:
+		return fmt.Errorf("unsupported ACP harness %s", s.bridge.harness)
+	}
+}
+
+func (s *acpSession) initializeClaude() error {
 	requestID := rand.Text()
 	if err := s.write(map[string]any{
 		"type":       "control_request",
@@ -324,7 +340,86 @@ func (s *claudeSession) initialize() error {
 	}
 }
 
-func (a *acpBridge) translate(s *claudeSession, turn *claudeTurn, message map[string]any) (*acp.StopReason, error) {
+func (s *acpSession) initializeCodex() error {
+	if _, err := s.request("initialize", map[string]any{"clientInfo": map[string]any{
+		"name": "agentfile", "title": "Agentfile ACP bridge", "version": "1",
+	}}); err != nil {
+		return fmt.Errorf("Codex initialization failed: %w", err)
+	}
+	if err := s.write(map[string]any{"method": "initialized", "params": map[string]any{}}); err != nil {
+		return err
+	}
+	result, err := s.request("thread/start", map[string]any{
+		"cwd": "/agent/workspace", "ephemeral": true,
+	})
+	if err != nil {
+		return fmt.Errorf("Codex thread start failed: %w", err)
+	}
+	thread := mapValue(result["thread"])
+	s.threadID = stringValue(thread["id"])
+	if s.threadID == "" {
+		return fmt.Errorf("Codex thread start returned no thread id")
+	}
+	return nil
+}
+
+func (s *acpSession) request(method string, params map[string]any) (map[string]any, error) {
+	id := rand.Text()
+	if err := s.write(map[string]any{"method": method, "id": id, "params": params}); err != nil {
+		return nil, err
+	}
+	for {
+		message, err := s.read()
+		if err != nil {
+			return nil, err
+		}
+		if fmt.Sprint(message["id"]) != id {
+			continue
+		}
+		if failure := mapValue(message["error"]); failure != nil {
+			return nil, fmt.Errorf("%s: %s", fmt.Sprint(failure["code"]), stringValue(failure["message"]))
+		}
+		return mapValue(message["result"]), nil
+	}
+}
+
+func (s *acpSession) sendPrompt(turn *acpTurn, content []any) error {
+	switch s.bridge.harness {
+	case "claudecode":
+		return s.write(map[string]any{
+			"type":               "user",
+			"message":            map[string]any{"role": "user", "content": content},
+			"parent_tool_use_id": nil,
+			"session_id":         "default",
+		})
+	case "codex":
+		turn.requestID = rand.Text()
+		return s.write(map[string]any{
+			"method": "turn/start", "id": turn.requestID,
+			"params": map[string]any{"threadId": s.threadID, "input": content},
+		})
+	case "pi":
+		turn.requestID = rand.Text()
+		return s.write(map[string]any{"id": turn.requestID, "type": "prompt", "message": contentText(content)})
+	default:
+		return fmt.Errorf("unsupported ACP harness %s", s.bridge.harness)
+	}
+}
+
+func (a *acpBridge) translate(s *acpSession, turn *acpTurn, message map[string]any) (*acp.StopReason, error) {
+	switch s.bridge.harness {
+	case "claudecode":
+		return a.translateClaude(s, turn, message)
+	case "codex":
+		return a.translateCodex(s, turn, message)
+	case "pi":
+		return a.translatePi(s, turn, message)
+	default:
+		return nil, fmt.Errorf("unsupported ACP harness %s", s.bridge.harness)
+	}
+}
+
+func (a *acpBridge) translateClaude(s *acpSession, turn *acpTurn, message map[string]any) (*acp.StopReason, error) {
 	switch stringValue(message["type"]) {
 	case "stream_event":
 		event, _ := message["event"].(map[string]any)
@@ -366,7 +461,7 @@ func (a *acpBridge) translate(s *claudeSession, turn *claudeTurn, message map[st
 			if value, _ := block["is_error"].(bool); value {
 				status = acp.ToolCallStatusFailed
 			}
-			text := claudeContentText(block["content"])
+			text := contentText(block["content"])
 			opts := []acp.ToolCallUpdateOpt{acp.WithUpdateStatus(status), acp.WithUpdateRawOutput(block["content"])}
 			if text != "" {
 				opts = append(opts, acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(text))}))
@@ -402,7 +497,7 @@ func (a *acpBridge) translate(s *claudeSession, turn *claudeTurn, message map[st
 	return nil, nil
 }
 
-func (a *acpBridge) translateStream(s *claudeSession, turn *claudeTurn, event map[string]any) error {
+func (a *acpBridge) translateStream(s *acpSession, turn *acpTurn, event map[string]any) error {
 	switch stringValue(event["type"]) {
 	case "message_start":
 		turn.seen = map[int]bool{}
@@ -446,12 +541,181 @@ func (a *acpBridge) translateStream(s *claudeSession, turn *claudeTurn, event ma
 	return nil
 }
 
+func (a *acpBridge) translateCodex(s *acpSession, turn *acpTurn, message map[string]any) (*acp.StopReason, error) {
+	if fmt.Sprint(message["id"]) == turn.requestID {
+		if failure := mapValue(message["error"]); failure != nil {
+			return nil, fmt.Errorf("Codex turn start failed: %s", stringValue(failure["message"]))
+		}
+		s.setTurnID(stringValue(mapValue(mapValue(message["result"])["turn"])["id"]))
+		if turnID := s.currentTurnID(); s.wasCancelled() && turnID != "" {
+			_ = s.write(map[string]any{"method": "turn/interrupt", "id": rand.Text(), "params": map[string]any{"threadId": s.threadID, "turnId": turnID}})
+		}
+		return nil, nil
+	}
+	method := stringValue(message["method"])
+	params := mapValue(message["params"])
+	if threadID := stringValue(params["threadId"]); threadID != "" && threadID != s.threadID {
+		return nil, nil
+	}
+	switch method {
+	case "turn/started":
+		s.setTurnID(stringValue(mapValue(params["turn"])["id"]))
+	case "item/agentMessage/delta":
+		return nil, a.update(s.id, acp.UpdateAgentMessageText(stringValue(params["delta"])))
+	case "item/reasoning/textDelta", "item/reasoning/summaryTextDelta":
+		return nil, a.update(s.id, acp.UpdateAgentThoughtText(stringValue(params["delta"])))
+	case "item/started":
+		item := mapValue(params["item"])
+		id, title, input, ok := codexTool(item)
+		if ok {
+			return nil, a.update(s.id, acp.StartToolCall(acp.ToolCallId(id), title,
+				acp.WithStartStatus(acp.ToolCallStatusInProgress), acp.WithStartRawInput(input)))
+		}
+	case "item/commandExecution/outputDelta", "item/fileChange/outputDelta":
+		id, delta := stringValue(params["itemId"]), stringValue(params["delta"])
+		if id != "" && delta != "" {
+			return nil, a.update(s.id, acp.UpdateToolCall(acp.ToolCallId(id),
+				acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(delta))})))
+		}
+	case "item/completed":
+		item := mapValue(params["item"])
+		id, _, _, ok := codexTool(item)
+		if ok {
+			status := acp.ToolCallStatusCompleted
+			toolStatus := stringValue(item["status"])
+			if toolStatus == "failed" || toolStatus == "declined" || intValue(item["exitCode"]) != 0 {
+				status = acp.ToolCallStatusFailed
+			}
+			opts := []acp.ToolCallUpdateOpt{acp.WithUpdateStatus(status), acp.WithUpdateRawOutput(item)}
+			if output := codexToolOutput(item); output != "" {
+				opts = append(opts, acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(output))}))
+			}
+			return nil, a.update(s.id, acp.UpdateToolCall(acp.ToolCallId(id), opts...))
+		}
+	case "error":
+		if retry, _ := params["willRetry"].(bool); !retry {
+			turn.err = stringValue(mapValue(params["error"])["message"])
+		}
+	case "turn/completed":
+		completed := mapValue(params["turn"])
+		switch stringValue(completed["status"]) {
+		case "completed":
+			stop := acp.StopReasonEndTurn
+			return &stop, nil
+		case "interrupted":
+			stop := acp.StopReasonCancelled
+			return &stop, nil
+		case "failed":
+			message := stringValue(mapValue(completed["error"])["message"])
+			if message == "" {
+				message = turn.err
+			}
+			return nil, fmt.Errorf("Codex turn failed: %s", message)
+		}
+	}
+	return nil, nil
+}
+
+func (a *acpBridge) translatePi(s *acpSession, turn *acpTurn, message map[string]any) (*acp.StopReason, error) {
+	if fmt.Sprint(message["id"]) == turn.requestID && stringValue(message["type"]) == "response" {
+		if success, _ := message["success"].(bool); !success {
+			return nil, fmt.Errorf("Pi prompt failed: %s", stringValue(message["error"]))
+		}
+		return nil, nil
+	}
+	switch stringValue(message["type"]) {
+	case "message_update":
+		event := mapValue(message["assistantMessageEvent"])
+		switch stringValue(event["type"]) {
+		case "text_delta":
+			return nil, a.update(s.id, acp.UpdateAgentMessageText(stringValue(event["delta"])))
+		case "thinking_delta":
+			return nil, a.update(s.id, acp.UpdateAgentThoughtText(stringValue(event["delta"])))
+		case "done":
+			if stringValue(event["reason"]) == "length" {
+				turn.stop = acp.StopReasonMaxTokens
+			}
+		case "error":
+			if stringValue(event["reason"]) == "aborted" {
+				turn.stop = acp.StopReasonCancelled
+			} else {
+				turn.err = stringValue(event["error"])
+				if turn.err == "" {
+					turn.err = "model error"
+				}
+			}
+		}
+	case "tool_execution_start":
+		return nil, a.update(s.id, acp.StartToolCall(acp.ToolCallId(stringValue(message["toolCallId"])), stringValue(message["toolName"]),
+			acp.WithStartStatus(acp.ToolCallStatusInProgress), acp.WithStartRawInput(message["args"])))
+	case "tool_execution_update":
+		id, result := stringValue(message["toolCallId"]), message["partialResult"]
+		opts := []acp.ToolCallUpdateOpt{acp.WithUpdateRawOutput(result)}
+		if output := contentText(mapValue(result)["content"]); output != "" {
+			opts = append(opts, acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(output))}))
+		}
+		return nil, a.update(s.id, acp.UpdateToolCall(acp.ToolCallId(id), opts...))
+	case "tool_execution_end":
+		status := acp.ToolCallStatusCompleted
+		if failed, _ := message["isError"].(bool); failed {
+			status = acp.ToolCallStatusFailed
+		}
+		result := message["result"]
+		opts := []acp.ToolCallUpdateOpt{acp.WithUpdateStatus(status), acp.WithUpdateRawOutput(result)}
+		if output := contentText(mapValue(result)["content"]); output != "" {
+			opts = append(opts, acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(output))}))
+		}
+		return nil, a.update(s.id, acp.UpdateToolCall(acp.ToolCallId(stringValue(message["toolCallId"])), opts...))
+	case "agent_end":
+		// Pi 0.80 emits willRetry but no agent_settled; ACP never queues continuations.
+		if retry, _ := message["willRetry"].(bool); retry {
+			return nil, nil
+		}
+		if s.wasCancelled() {
+			stop := acp.StopReasonCancelled
+			return &stop, nil
+		}
+		if turn.err != "" {
+			return nil, fmt.Errorf("Pi turn failed: %s", turn.err)
+		}
+		stop := turn.stop
+		return &stop, nil
+	}
+	return nil, nil
+}
+
+func codexTool(item map[string]any) (string, string, any, bool) {
+	id := stringValue(item["id"])
+	switch stringValue(item["type"]) {
+	case "commandExecution":
+		return id, stringValue(item["command"]), map[string]any{"command": item["command"], "cwd": item["cwd"]}, id != ""
+	case "fileChange":
+		return id, "Apply file changes", item["changes"], id != ""
+	case "mcpToolCall":
+		return id, stringValue(item["server"]) + "/" + stringValue(item["tool"]), item["arguments"], id != ""
+	case "dynamicToolCall":
+		return id, stringValue(item["tool"]), item["arguments"], id != ""
+	case "webSearch":
+		return id, "Web search: " + stringValue(item["query"]), map[string]any{"query": item["query"]}, id != ""
+	}
+	return "", "", nil, false
+}
+
+func codexToolOutput(item map[string]any) string {
+	for _, key := range []string{"aggregatedOutput", "result", "error", "contentItems"} {
+		if text := contentText(item[key]); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
 func (a *acpBridge) update(sessionID acp.SessionId, update acp.SessionUpdate) error {
 	<-a.ready
 	return a.conn.SessionUpdate(a.ctx, acp.SessionNotification{SessionId: sessionID, Update: update})
 }
 
-func (a *acpBridge) session(id acp.SessionId) (*claudeSession, bool) {
+func (a *acpBridge) session(id acp.SessionId) (*acpSession, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s, ok := a.sessions[id]
@@ -461,14 +725,14 @@ func (a *acpBridge) session(id acp.SessionId) (*claudeSession, bool) {
 func (a *acpBridge) closeAll() {
 	a.mu.Lock()
 	sessions := a.sessions
-	a.sessions = map[acp.SessionId]*claudeSession{}
+	a.sessions = map[acp.SessionId]*acpSession{}
 	a.mu.Unlock()
 	for _, s := range sessions {
 		s.close()
 	}
 }
 
-func (a *acpBridge) dropSession(s *claudeSession) {
+func (a *acpBridge) dropSession(s *acpSession) {
 	a.mu.Lock()
 	if a.sessions[s.id] == s {
 		delete(a.sessions, s.id)
@@ -477,7 +741,7 @@ func (a *acpBridge) dropSession(s *claudeSession) {
 	s.close()
 }
 
-func (s *claudeSession) beginPrompt() bool {
+func (s *acpSession) beginPrompt() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.active {
@@ -485,22 +749,35 @@ func (s *claudeSession) beginPrompt() bool {
 	}
 	s.active = true
 	s.cancel = false
+	s.turnID = ""
 	return true
 }
 
-func (s *claudeSession) endPrompt() {
+func (s *acpSession) endPrompt() {
 	s.mu.Lock()
 	s.active = false
 	s.mu.Unlock()
 }
 
-func (s *claudeSession) wasCancelled() bool {
+func (s *acpSession) wasCancelled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cancel
 }
 
-func (s *claudeSession) interrupt() error {
+func (s *acpSession) setTurnID(id string) {
+	s.mu.Lock()
+	s.turnID = id
+	s.mu.Unlock()
+}
+
+func (s *acpSession) currentTurnID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.turnID
+}
+
+func (s *acpSession) interrupt() error {
 	s.mu.Lock()
 	if !s.active {
 		s.mu.Unlock()
@@ -508,26 +785,41 @@ func (s *claudeSession) interrupt() error {
 	}
 	s.cancel = true
 	s.mu.Unlock()
-	return s.write(map[string]any{
-		"type":       "control_request",
-		"request_id": rand.Text(),
-		"request":    map[string]any{"subtype": "interrupt"},
-	})
+	switch s.bridge.harness {
+	case "claudecode":
+		return s.write(map[string]any{
+			"type":       "control_request",
+			"request_id": rand.Text(),
+			"request":    map[string]any{"subtype": "interrupt"},
+		})
+	case "codex":
+		turnID := s.currentTurnID()
+		if turnID == "" {
+			return nil
+		}
+		return s.write(map[string]any{"method": "turn/interrupt", "id": rand.Text(), "params": map[string]any{
+			"threadId": s.threadID, "turnId": turnID,
+		}})
+	case "pi":
+		return s.write(map[string]any{"id": rand.Text(), "type": "abort"})
+	default:
+		return nil
+	}
 }
 
-func (s *claudeSession) write(value any) error {
+func (s *acpSession) write(value any) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if err := json.NewEncoder(s.stdin).Encode(value); err != nil {
-		return fmt.Errorf("write Claude stream: %w", err)
+		return fmt.Errorf("write %s stream: %w", s.bridge.harness, err)
 	}
 	return nil
 }
 
-func (s *claudeSession) read() (map[string]any, error) {
+func (s *acpSession) read() (map[string]any, error) {
 	if !s.scanner.Scan() {
 		if err := s.scanner.Err(); err != nil {
-			return nil, fmt.Errorf("read Claude stream: %w", err)
+			return nil, fmt.Errorf("read %s stream: %w", s.bridge.harness, err)
 		}
 		err := <-s.done
 		var exitErr *exec.ExitError
@@ -544,7 +836,7 @@ func (s *claudeSession) read() (map[string]any, error) {
 	}
 	var message map[string]any
 	if err := json.Unmarshal(s.scanner.Bytes(), &message); err != nil {
-		return nil, fmt.Errorf("decode Claude stream: %w", err)
+		return nil, fmt.Errorf("decode %s stream: %w", s.bridge.harness, err)
 	}
 	return message, nil
 }
@@ -559,7 +851,7 @@ func resourceLinkText(link *acp.ContentBlockResourceLink, cwd string) string {
 	return fmt.Sprintf("The user referenced resource %q at %s.", link.Name, reference)
 }
 
-func (s *claudeSession) close() {
+func (s *acpSession) close() {
 	s.stop.Do(func() {
 		_ = s.interrupt()
 		_ = s.stdin.Close()
@@ -582,19 +874,29 @@ func intValue(value any) int {
 	return int(number)
 }
 
-func claudeContentText(value any) string {
-	if text, ok := value.(string); ok {
-		return text
-	}
-	blocks, _ := value.([]any)
-	var text strings.Builder
-	for _, raw := range blocks {
-		block, _ := raw.(map[string]any)
-		if stringValue(block["type"]) == "text" {
-			text.WriteString(stringValue(block["text"]))
+func mapValue(value any) map[string]any {
+	result, _ := value.(map[string]any)
+	return result
+}
+
+func contentText(value any) string {
+	switch value := value.(type) {
+	case string:
+		return value
+	case []any:
+		var text strings.Builder
+		for _, item := range value {
+			text.WriteString(contentText(item))
+		}
+		return text.String()
+	case map[string]any:
+		for _, key := range []string{"text", "message", "content"} {
+			if text := contentText(value[key]); text != "" {
+				return text
+			}
 		}
 	}
-	return text.String()
+	return ""
 }
 
 func claudeResultError(message map[string]any) string {
