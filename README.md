@@ -1,8 +1,6 @@
-# Agentfile - build reusable, scriptable, one-shot agents
+# Agentfile - package reusable agents
 
-AI assistants have changed our relationship with personal computing and productivity work, but there's still huge potential in using goal-driven, unattended agents within business automations, CI workflows and scripts (a.k.a "one-shot" agents).  
-This use case introduces new challenges - how to create agents for unattended, non-interactive work, how to package agents and deploy them in remote environments in a repeatable way, and what does the new Markdown programming toolchain looks like.  
-Agentfile is an opinionated framework that answers those questions.
+Agentfile packages a tuned agent—its system prompt, skills, MCP servers, model, and credential wiring—as a repeatable container image. Use the same agent unattended in automation, through its native terminal UI, or from an ACP client.
 
 - No code, declarative agents - driven by Markdown and YAML and managed in git.
 - Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.
@@ -14,6 +12,8 @@ Agentfile makes agents familiar:
 cd blog-post && af run grammar-check --workspace .
 tail logfile.jsonl | af run logtriage
 cron "0 0 * * *" "af run daily-report"
+af run code-review --tui --workspace .
+af run --acp code-review # spawn this command from an ACP client
 
 # casually use it like any container image
 af build -f agentfile.yaml --tag itaysk/my-agent:latest

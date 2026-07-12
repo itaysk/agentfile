@@ -47,9 +47,13 @@ The entrypoint owns the `AGENTFILE_` environment variable namespace: it accepts 
 
 ## Run Modes
 
-`AGENTFILE_RUN_MODE` accepts `oneshot` and `tui`. Unset or empty defaults to `oneshot`; any other value exits with status 64.
+`AGENTFILE_RUN_MODE` accepts `oneshot`, `tui` and `acp` modes. Unset or empty defaults to `oneshot`. unsupported values exit with status 64.
+`acp` is currently supported only for Claude Code.
 
-In TUI mode, the entrypoint does not resolve, require, export, or pass `AGENTFILE_PROMPT`; it unsets an inherited value. The TUI starts without an initial user message.
+In TUI and ACP modes, the entrypoint does not resolve, require, export, or pass `AGENTFILE_PROMPT`; it unsets an inherited value. Both modes start without an initial user message.
+
+ACP mode exposes the harness's native stream protocol on container stdin and stdout. ACP JSON-RPC translation remains in the host-side `af` process, not the image.  
+In ACP mode, `af run --acp` starts the host-side bridge and prepares the image without starting a container. After protocol initialization, each `session/new` request creats a container.
 
 The entrypoint resolves each runtime variable once and substitutes that single resolution into every config token that references it.
 
@@ -64,6 +68,10 @@ Each harness gets an image-local generated home directory. The generated home is
 | Pi | `/agent/agentfile/pi/home` | `PI_CODING_AGENT_DIR=/agent/agentfile/pi/home` |
 
 Generated homes may contain config, copied skills, and other Agentfile-owned runtime assets. They must not contain LLM credentials, host auth caches, or host user-level harness configuration.
+
+## Sessions
+
+Harness session files are written under the generated home in the container. Session state therefore lasts only for the container's lifetime and cannot be resumed by a later run or ACP session.
 
 ## Provider Support
 
@@ -209,7 +217,6 @@ One-shot command:
 claude \
   --print \
   --model "$AGENTFILE_MODEL" \
-  --no-session-persistence \
   --dangerously-skip-permissions \
   [--bare] \
   [--system-prompt-file /agent/agentfile/system-prompt.md] \
@@ -228,8 +235,23 @@ claude \
   [--mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config]
 ```
 
-The TUI command deliberately omits `--print`, `--no-session-persistence`, and a positional prompt. 
+The TUI command deliberately omits `--print` and a positional prompt.
 `IS_DEMO=1` is set which skips Claude Code's onboarding and login wizard.
+
+ACP stream command:
+
+```bash
+claude \
+  --output-format stream-json \
+  --verbose \
+  --model "$AGENTFILE_MODEL" \
+  --dangerously-skip-permissions \
+  [--bare] \
+  [--system-prompt-file /agent/agentfile/system-prompt.md] \
+  [--mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config] \
+  --input-format stream-json \
+  --include-partial-messages
+```
 
 Flags passed explicitly still apply, and all of the necessary features can be configured with explicit flags except skills.
 

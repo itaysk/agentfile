@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/itaysk/agentfile/internal/config"
+	"github.com/itaysk/agentfile/internal/runner"
 )
 
 func TestRunHelpExitsZero(t *testing.T) {
@@ -23,6 +24,9 @@ func TestRunHelpExitsZero(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "--tui") {
 		t.Fatalf("stdout = %q, want --tui in run usage", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "--acp") {
+		t.Fatalf("stdout = %q, want --acp in run usage", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
@@ -98,11 +102,31 @@ func TestParseRunFlagsSupportsTUIWithoutPrompt(t *testing.T) {
 	if err := parseRunFlags([]string{"cc", "--tui"}, &options); err != nil {
 		t.Fatalf("parseRunFlags returned error: %v", err)
 	}
-	if !options.tui {
-		t.Fatal("tui = false, want true")
+	if options.mode != runner.RunModeTUI {
+		t.Fatalf("mode = %q, want tui", options.mode)
 	}
 	if err := parseRunFlags([]string{"--tui", "--prompt", "say hi"}, &runFlags{env: map[string]string{}}); err == nil || !strings.Contains(err.Error(), "--prompt cannot be used with --tui") {
 		t.Fatalf("parseRunFlags TUI/prompt error = %v, want conflict", err)
+	}
+}
+
+func TestParseRunFlagsSupportsACP(t *testing.T) {
+	options := runFlags{env: map[string]string{}}
+	if err := parseRunFlags([]string{"cc", "--acp"}, &options); err != nil {
+		t.Fatalf("parseRunFlags returned error: %v", err)
+	}
+	if options.mode != runner.RunModeACP {
+		t.Fatalf("mode = %q, want acp", options.mode)
+	}
+	for _, args := range [][]string{
+		{"--acp", "--tui"},
+		{"--acp", "--prompt", "say hi"},
+		{"--acp", "--workspace", "."},
+		{"--acp", "--ws", "."},
+	} {
+		if err := parseRunFlags(args, &runFlags{env: map[string]string{}}); err == nil {
+			t.Fatalf("parseRunFlags(%q) accepted incompatible ACP flags", args)
+		}
 	}
 }
 
@@ -369,7 +393,7 @@ func TestRunImageAdHoc(t *testing.T) {
 		"-e AGENTFILE_PROMPT=say hi",
 		"-e EXTRA=value",
 		"-e GITHUB_TOKEN=host-token",
-		"-v " + workspace + ":/agent/workspace",
+		"--mount type=bind,source=" + workspace + ",target=/agent/workspace",
 		"acme/triage:1.2",
 	} {
 		if !strings.Contains(log, want) {

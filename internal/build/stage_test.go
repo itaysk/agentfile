@@ -374,6 +374,52 @@ func TestEntrypointsTUIArePromptless(t *testing.T) {
 	}
 }
 
+func TestClaudeEntrypointACP(t *testing.T) {
+	af := agentfile.AgentFile{Spec: agentfile.Spec{
+		Harness: agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{Bare: true}},
+		LLM:     agentfile.LLM{Anthropic: &agentfile.ModelProvider{Model: "claude-haiku-4-5"}},
+	}}
+	assets := &agentfile.ResolvedAssets{Prompt: "ignored ACP prompt", HasPrompt: true, SystemPrompt: "system", HasSystemPrompt: true}
+	script := entrypointScript(af, assets, nil)
+	start := strings.Index(script, `if [ "$AGENTFILE_RUN_MODE" = acp ]; then`)
+	if start < 0 {
+		t.Fatalf("entrypoint has no ACP branch:\n%s", script)
+	}
+	branch := script[start:]
+	branch = branch[:strings.Index(branch, "\nfi\n")]
+	for _, want := range []string{"--output-format stream-json", "--input-format stream-json", "--include-partial-messages", "--verbose", "--bare", "--system-prompt-file", "--dangerously-skip-permissions"} {
+		if !strings.Contains(branch, want) {
+			t.Fatalf("ACP branch does not contain %q:\n%s", want, branch)
+		}
+	}
+	for _, unwanted := range []string{"AGENTFILE_PROMPT", "ignored ACP prompt", "--print", "--no-session-persistence", "CLAUDE_CODE_SKIP_PROMPT_HISTORY"} {
+		if strings.Contains(branch, unwanted) {
+			t.Fatalf("ACP branch contains %q:\n%s", unwanted, branch)
+		}
+	}
+	if strings.Contains(script, "--no-session-persistence") {
+		t.Fatalf("entrypoint disables native session persistence:\n%s", script)
+	}
+}
+
+func TestNonClaudeEntrypointsRejectACP(t *testing.T) {
+	for _, harness := range []agentfile.Harness{
+		{Codex: &agentfile.EmptyObject{}},
+		{Pi: &agentfile.EmptyObject{}},
+	} {
+		af := agentfile.AgentFile{Spec: agentfile.Spec{
+			Harness: harness,
+			LLM:     agentfile.LLM{OpenAI: &agentfile.ModelProvider{Model: "gpt-5-mini"}},
+		}}
+		cmd := exec.Command("sh", "-c", entrypointScript(af, &agentfile.ResolvedAssets{}, nil))
+		cmd.Env = append(os.Environ(), "AGENTFILE_RUN_MODE=acp")
+		output, err := cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(output), "unsupported run mode acp") {
+			t.Fatalf("%s ACP entrypoint = (%v, %q), want unsupported-mode error", harness.Name(), err, output)
+		}
+	}
+}
+
 func TestEntrypointRejectsUnknownMode(t *testing.T) {
 	af := agentfile.AgentFile{Spec: agentfile.Spec{
 		Harness: agentfile.Harness{ClaudeCode: &agentfile.ClaudeCodeHarness{}},

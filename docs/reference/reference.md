@@ -543,7 +543,7 @@ metadata.name:metadata.version
 Run starts an agent container and prints the agent stdout. `af run` is an alias for `af agents run`.
 
 ```bash
-af agents run [NAME | --file agentfile.yaml | --image REF] [--tui] [--prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]
+af agents run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]
 ```
 
 Agent selection:
@@ -564,7 +564,7 @@ Run steps:
 3. Bind the workspace if requested.
 4. Pass runtime environment variables.
 5. Start the container.
-6. Print the agent stdout, or attach the terminal in TUI mode.
+6. Print the agent stdout, attach the terminal in TUI mode, or serve ACP over stdio.
 7. Exit with the container exit code.
 
 `--workspace PATH` binds `PATH` to `/agent/workspace`. `PATH` must be an existing directory. Relative paths are resolved from the current working directory.  
@@ -574,7 +574,7 @@ Run steps:
 
 `--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
 `--env-file FILE` loads environment variables from an `.env` file.
-`--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result. TUI mode always attaches stderr and shows build progress. Image pull progress is always printed to stderr.
+`--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result. TUI mode always attaches stderr and shows build progress. ACP mode always reserves stdout for protocol messages and sends diagnostics to stderr. Image pull progress is always printed to stderr.
 
 Every variable referenced by a `runtimeEnv` field in the spec is set automatically when present on host. See [Runtime Variables](#runtime-variables) for details.
 
@@ -586,7 +586,7 @@ tail -200 app.log | af run log-triage
 
 #### TUI Mode
 
-`--tui` opens the selected harness's native interactive terminal. Claude Code runs with `IS_DEMO=1` in both one-shot and TUI modes, which skips first-run onboarding and hides account and organization identity; authentication still comes from runtime credentials such as `CLAUDE_CODE_OAUTH_TOKEN`.
+`--tui` opens the selected harness's native interactive terminal.
 
 ```bash
 af run code-review --tui --workspace .
@@ -595,6 +595,21 @@ af run code-review --tui --workspace .
 TUI mode starts without an initial user message: `spec.prompt` is ignored, and `--prompt` cannot be combined with `--tui`.
 
 For image-based selection, TUI mode requires the `build.agentfile.harness` label added by current Agentfile builds.
+
+#### ACP Mode
+
+`--acp` turns `af` into an [Agent Client Protocol](https://agentclientprotocol.com) v1 server on its stdin and stdout. Configure an ACP client to spawn the command directly. ACP currently supports Claude Code only.
+
+`session/new` starts an agent container.
+the ACP client supplies a workspace for each session. The request's absolute `cwd` is mounted at `/agent/workspace`. `--workspace` and `--ws` are not supported with `--acp`.
+the ACP client supplies the user input. Prompt `spec.prompt` and `--prompt` is ignored in ACP mode.
+
+The bridge accepts text and resource-link prompts and supports streamed messages, thoughts, tool calls, cancellation, and close. It does not advertise other ACP features.
+File resource links inside the session workspace are translated to their `/agent/workspace` paths.
+
+Client-provided MCP servers are rejected since MCP server definition and configuration belong in the agentfile.
+
+`session/close` stops the agent container. Disconnecting the client stops all remaining containers.
 
 #### Field Overrides
 
@@ -692,14 +707,20 @@ Use a bind mount for workspace input and output:
 docker run --rm -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:latest
 ```
 
-Open the harness TUI by allocating a terminal and selecting `tui` mode:
+Run interactive agent:
 
 ```bash
 docker run --rm -it -e AGENTFILE_RUN_MODE=tui -e ANTHROPIC_API_KEY -v "$PWD:/agent/workspace" hello-world:latest
 ```
 
+Run ACP agent:
+
+```bash
+docker run --rm -it -e AGENTFILE_RUN_MODE=acp -e ANTHROPIC_API_KEY hello-world:latest
+```
+
 ## Security
 
-Agentfile agents run in containers, which provide their isolation boundary. Harness permission and approval gates are disabled in both one-shot and TUI modes, so the agent can read, write, and execute freely inside its container without asking. Additional isolation can be added at deploy time using container runtime security features.
+Agentfile agents run in containers, which provide their isolation boundary. Harness permission and approval gates are disabled so the agent can read, write, and execute freely inside its container without asking. Additional isolation can be added at deploy time using container runtime security features.
 
 Secrets should use `runtimeEnv` and be provided at run time. See [Runtime Variables](#runtime-variables).

@@ -16,7 +16,11 @@ func entrypointScript(af agentfile.AgentFile, assets *agentfile.ResolvedAssets, 
 	builder.WriteString("set -eu\n\n")
 	builder.WriteString(`AGENTFILE_RUN_MODE=${AGENTFILE_RUN_MODE:-oneshot}` + "\n")
 	builder.WriteString(`case "$AGENTFILE_RUN_MODE" in` + "\n")
-	builder.WriteString("  oneshot|tui) ;;\n")
+	modes := "oneshot|tui"
+	if af.Spec.Harness.Name() == "claudecode" {
+		modes += "|acp"
+	}
+	builder.WriteString("  " + modes + ") ;;\n")
 	builder.WriteString(`  *) echo "agentfile: unsupported run mode $AGENTFILE_RUN_MODE" >&2; exit 64;;` + "\n")
 	builder.WriteString("esac\n")
 	builder.WriteString("\n")
@@ -155,13 +159,18 @@ func claudeCodeEntrypoint(af agentfile.AgentFile, assets *agentfile.ResolvedAsse
 		args = append(args, "--mcp-config /agent/agentfile/claudecode/mcp.json", "--strict-mcp-config")
 	}
 	tuiArgs := append([]string{"claude"}, args...)
+	acpArgs := append([]string{"claude", "--output-format stream-json", "--verbose"}, args...)
+	acpArgs = append(acpArgs, "--input-format stream-json", "--include-partial-messages")
 	oneShotArgs := append([]string{"claude", "--print"}, args...)
-	oneShotArgs = append(oneShotArgs, "--no-session-persistence", "\"$AGENTFILE_PROMPT\"")
+	oneShotArgs = append(oneShotArgs, "\"$AGENTFILE_PROMPT\"")
 	return `export HOME=/agent/agentfile/claudecode/home
 export IS_SANDBOX=1
 export IS_DEMO=1
 if [ "$AGENTFILE_RUN_MODE" = tui ]; then
   exec ` + strings.Join(tuiArgs, " \\\n    ") + `
+fi
+if [ "$AGENTFILE_RUN_MODE" = acp ]; then
+  exec ` + strings.Join(acpArgs, " \\\n    ") + `
 fi
 exec ` + strings.Join(oneShotArgs, " \\\n  ") + "\n"
 }

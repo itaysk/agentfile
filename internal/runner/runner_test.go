@@ -35,6 +35,13 @@ func TestRunSkipsDockerStdinForDevNull(t *testing.T) {
 	}
 }
 
+func TestRunRejectsUnknownMode(t *testing.T) {
+	code, err := Run(context.Background(), Options{Project: runnerTestProject(t), Mode: "bad"})
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "unsupported run mode") {
+		t.Fatalf("Run = (%d, %v), want unsupported mode error", code, err)
+	}
+}
+
 func TestRunForwardsRedirectedStdin(t *testing.T) {
 	dockerPath, logPath := installFakeDocker(t)
 	stdinLog := filepath.Join(t.TempDir(), "stdin.log")
@@ -80,7 +87,7 @@ func TestRunTUILaunchesPromptlessClaudeWithTTY(t *testing.T) {
 
 	code, err := Run(context.Background(), Options{
 		Project:      project,
-		TUI:          true,
+		Mode:         RunModeTUI,
 		Env:          map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "test-token"},
 		DockerBinary: dockerPath,
 		Stdin:        strings.NewReader(""),
@@ -114,13 +121,13 @@ func TestRunTUIRejectsPromptAndLegacyImages(t *testing.T) {
 		{
 			name: "prompt",
 			options: Options{
-				Project: runnerTestProject(t), TUI: true, Prompt: &prompt,
+				Project: runnerTestProject(t), Mode: RunModeTUI, Prompt: &prompt,
 			},
 			want: "--prompt cannot be used with --tui",
 		},
 		{
 			name:    "legacy image",
-			options: Options{Image: "acme/legacy:1", TUI: true},
+			options: Options{Image: "acme/legacy:1", Mode: RunModeTUI},
 			want:    "predates TUI support",
 		},
 	} {
@@ -165,7 +172,10 @@ func TestRunMountsWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer devNull.Close()
-	workspace := t.TempDir()
+	workspace := filepath.Join(t.TempDir(), "with:colon")
+	if err := os.Mkdir(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	code, err := Run(context.Background(), Options{
 		Project:      runnerTestProject(t),
@@ -178,7 +188,7 @@ func TestRunMountsWorkspace(t *testing.T) {
 	if err != nil || code != 0 {
 		t.Fatalf("Run = (%d, %v), want success", code, err)
 	}
-	if !strings.Contains(dockerRunArgs(t, logPath), "-v "+workspace+":/agent/workspace") {
+	if !strings.Contains(dockerRunArgs(t, logPath), "--mount type=bind,source="+workspace+",target=/agent/workspace") {
 		t.Fatalf("docker run args = %q, want workspace mount", dockerRunArgs(t, logPath))
 	}
 }

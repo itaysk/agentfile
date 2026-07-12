@@ -31,28 +31,24 @@ type Options struct {
 	RuntimeEnvNames []string
 	Prompt          *string
 	Model           string
-	TUI             bool
+	Mode            RunMode
 	extraDockerArgs []string
 }
+
+type RunMode string
+
+const (
+	RunModeOneShot RunMode = "oneshot"
+	RunModeTUI     RunMode = "tui"
+	RunModeACP     RunMode = "acp"
+)
 
 func Run(ctx context.Context, options Options) (int, error) {
 	if options.Project == nil && options.Image == "" {
 		return 1, fmt.Errorf("project is required")
 	}
-	harness := options.Harness
-	if options.Project != nil {
-		harness = options.Project.AgentFile.Spec.Harness.Name()
-	}
-	if options.TUI {
-		if options.Prompt != nil {
-			return 1, fmt.Errorf("--prompt cannot be used with --tui")
-		}
-		if harness == "" {
-			return 1, fmt.Errorf("image %q predates TUI support (missing %s label); rebuild it with a current af", options.Image, buildpkg.HarnessLabel)
-		}
-	}
-	if !options.TUI && options.Image == "" && options.Project.AgentFile.Spec.Prompt == nil && options.Prompt == nil {
-		return 1, fmt.Errorf("run requires an effective prompt")
+	if options.Mode == "" {
+		options.Mode = RunModeOneShot
 	}
 	if options.DockerBinary == "" {
 		options.DockerBinary = "docker"
@@ -69,6 +65,32 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if options.Env == nil {
 		options.Env = map[string]string{}
 	}
+	switch options.Mode {
+	case RunModeOneShot, RunModeTUI:
+		return runContainer(ctx, options)
+	case RunModeACP:
+		return runACP(ctx, options)
+	default:
+		return 1, fmt.Errorf("unsupported run mode %q", options.Mode)
+	}
+}
+
+func runContainer(ctx context.Context, options Options) (int, error) {
+	harness := options.Harness
+	if options.Project != nil {
+		harness = options.Project.AgentFile.Spec.Harness.Name()
+	}
+	if options.Mode == RunModeTUI {
+		if options.Prompt != nil {
+			return 1, fmt.Errorf("--prompt cannot be used with --tui")
+		}
+		if harness == "" {
+			return 1, fmt.Errorf("image %q predates TUI support (missing %s label); rebuild it with a current af", options.Image, buildpkg.HarnessLabel)
+		}
+	}
+	if options.Mode == RunModeOneShot && options.Image == "" && options.Project.AgentFile.Spec.Prompt == nil && options.Prompt == nil {
+		return 1, fmt.Errorf("run requires an effective prompt")
+	}
 	workspace := options.Workspace
 	if workspace != "" {
 		info, err := os.Stat(workspace)
@@ -82,39 +104,26 @@ func Run(ctx context.Context, options Options) (int, error) {
 			return 1, fmt.Errorf("workspace host path %q is not a directory", workspace)
 		}
 	}
-	forwardStdin := options.TUI || shouldForwardStdin(options.Stdin)
+	forwardStdin := options.Mode == RunModeTUI || shouldForwardStdin(options.Stdin)
 
-	tag := options.Image
-	if tag == "" {
-		var err error
-		tag, err = buildpkg.Build(ctx, buildpkg.Options{
-			Project:      options.Project,
-			Tag:          options.Tag,
-			DockerBinary: options.DockerBinary,
-			Stdout:       options.Stderr,
-			Stderr:       options.Stderr,
-		})
-		if err != nil {
-			return 1, err
-		}
+	tag, err := resolveRunImage(ctx, options)
+	if err != nil {
+		return 1, err
 	}
 
 	args := []string{"run", "--rm"}
-	if options.TUI {
+	if options.Mode == RunModeTUI {
 		args = append(args, "-it")
 	} else if forwardStdin {
 		args = append(args, "-i")
 	}
 	args = append(args, options.extraDockerArgs...)
-	for _, envFile := range options.EnvFiles {
-		args = append(args, "--env-file", envFile)
-	}
 	runtimeEnvNames := options.RuntimeEnvNames
 	if len(runtimeEnvNames) == 0 && options.Project != nil {
 		runtimeEnvNames = options.Project.AgentFile.Spec.RuntimeEnvNames()
 	}
 	envs := runEnv(runtimeEnvNames, options.Env)
-	if options.TUI {
+	if options.Mode == RunModeTUI {
 		envs["AGENTFILE_RUN_MODE"] = "tui"
 	} else if options.Prompt != nil {
 		envs["AGENTFILE_PROMPT"] = *options.Prompt
@@ -122,11 +131,9 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if options.Model != "" {
 		envs["AGENTFILE_MODEL"] = options.Model
 	}
-	for _, key := range slices.Sorted(maps.Keys(envs)) {
-		args = append(args, "-e", key+"="+envs[key])
-	}
+	args = appendRunEnvironment(args, options.EnvFiles, envs)
 	if workspace != "" {
-		args = append(args, "-v", workspace+":/agent/workspace")
+		args = append(args, "--mount", "type=bind,source="+workspace+",target=/agent/workspace")
 	}
 	args = append(args, tag)
 
@@ -144,6 +151,29 @@ func Run(ctx context.Context, options Options) (int, error) {
 		return 1, fmt.Errorf("docker run failed: %w", err)
 	}
 	return 0, nil
+}
+
+func resolveRunImage(ctx context.Context, options Options) (string, error) {
+	if options.Image != "" {
+		return options.Image, nil
+	}
+	return buildpkg.Build(ctx, buildpkg.Options{
+		Project:      options.Project,
+		Tag:          options.Tag,
+		DockerBinary: options.DockerBinary,
+		Stdout:       options.Stderr,
+		Stderr:       options.Stderr,
+	})
+}
+
+func appendRunEnvironment(args, envFiles []string, envs map[string]string) []string {
+	for _, envFile := range envFiles {
+		args = append(args, "--env-file", envFile)
+	}
+	for _, key := range slices.Sorted(maps.Keys(envs)) {
+		args = append(args, "-e", key+"="+envs[key])
+	}
+	return args
 }
 
 type ImageInfo struct {

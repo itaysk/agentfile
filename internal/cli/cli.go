@@ -102,7 +102,7 @@ func runAgents(args []string, stdout, stderr io.Writer) (int, error) {
 
 func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--tui] [--prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]")
+		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]")
 		return 0, nil
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
@@ -110,7 +110,7 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 		return 1, err
 	}
 	runStderr := io.Discard
-	if options.debug || options.tui {
+	if options.debug || options.mode != "" {
 		runStderr = stderr
 	}
 	// Pull progress goes to real stderr even without --debug: a first pull can
@@ -119,7 +119,7 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	exitCode, err := runner.Run(context.Background(), runner.Options{
+	runOptions := runner.Options{
 		Project:         project,
 		Image:           image,
 		Harness:         harness,
@@ -129,11 +129,11 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 		Env:             options.env,
 		EnvFiles:        options.envFiles,
 		Workspace:       options.workspace,
-		TUI:             options.tui,
+		Mode:            options.mode,
 		Stdout:          stdout,
 		Stderr:          runStderr,
-	})
-	return exitCode, err
+	}
+	return runner.Run(context.Background(), runOptions)
 }
 
 func runRegister(args []string, stdout io.Writer) error {
@@ -328,7 +328,7 @@ type runFlags struct {
 	prompt    *string
 	model     string
 	debug     bool
-	tui       bool
+	mode      runner.RunMode
 }
 
 // matchStrFlag recognizes "--long value", "short value", "--long=value", and "short=value".
@@ -489,7 +489,15 @@ func parseRunFlags(args []string, options *runFlags) error {
 		case arg == "--debug":
 			options.debug = true
 		case arg == "--tui":
-			options.tui = true
+			if options.mode == runner.RunModeACP {
+				return fmt.Errorf("--tui cannot be used with --acp")
+			}
+			options.mode = runner.RunModeTUI
+		case arg == "--acp":
+			if options.mode == runner.RunModeTUI {
+				return fmt.Errorf("--tui cannot be used with --acp")
+			}
+			options.mode = runner.RunModeACP
 		case strings.HasPrefix(arg, "-"):
 			return fmt.Errorf("unknown run argument %q", arg)
 		default:
@@ -508,8 +516,11 @@ func parseRunFlags(args []string, options *runFlags) error {
 	if options.fileSet && options.name != "" {
 		return fmt.Errorf("NAME and --file cannot be used together")
 	}
-	if options.tui && options.prompt != nil {
-		return fmt.Errorf("--prompt cannot be used with --tui")
+	if options.prompt != nil && options.mode != "" {
+		return fmt.Errorf("--prompt cannot be used with --%s", options.mode)
+	}
+	if options.mode == runner.RunModeACP && options.workspace != "" {
+		return fmt.Errorf("--workspace cannot be used with --acp; the ACP client supplies the workspace")
 	}
 	return nil
 }
