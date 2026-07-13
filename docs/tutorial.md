@@ -1,37 +1,15 @@
 # Agentfile Introduction
 
-AI assistants have changed our relationship with personal computing and productivity work, but there's still huge potential in using goal-driven, unattended agents within business automations, CI workflows and scripts (a.k.a "one-shot" agents).  
-This use case introduces new challenges - how to create agents for unattended, non-interactive work, how to package agents and deploy them in remote environments in a repeatable way, and what does the new Markdown programming toolchain looks like.  
-Agentfile is an opinionated framework that answers those questions.
+Agentfile lets you build portable and custom AI agents easily.
 
 - No code, declarative agents - driven by Markdown and YAML and managed in git.
 - Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.
 - Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
 
-Agentfile makes agents familiar:
+This is a tutorial that walks you through basic concepts of Agentfile. For the full reference manual see [here](./reference/reference.md).  
+If you want to follow along, make sure you [install Agentfile](./install.md) first.
 
-```shell
-cd blog-post && af run grammar-check --workspace .
-tail logfile.jsonl | af run logtriage
-cron "0 0 * * *" "af run daily-report"
-
-# casually use it like any container image
-af build -f agentfile.yaml --tag itaysk/my-agent:latest
-docker push itaysk/my-agent:latest
-kubectl run my-agent --image=itaysk/my-agent:latest
-```
-
-This is a tutorial that walks you through basic concepts of Agentfile. For the full manual see the [Reference Manual](./reference/reference.md).  
-If you want to follow along, make sure you [install Agentfile](./installation.md).
-
-The basic anatomy of an agent includes:
-1. **Prompt** - instructions for the agent
-2. **LLM** - language model for inference
-3. **Harness** - software that wires the LLM, prompt, and responses together
-
-There can be many more agentic components, such as skills, tools, MCP servers, and context files, but at the bare minimum an agent needs those three.
-
-Let's see how to compose the core agent properties with an agentfile.
+Let's get started.
 
 ---
 
@@ -55,10 +33,7 @@ spec:
       say hi!
 ```
 
-We've created an agent! Notice that the agentfile defines the prompt, model, and harness.
-The prompt was defined inline; later we'll see other ways to manage prompts and additional markdown-driven assets.
-We selected Anthropic as the LLM provider, and specifically the Claude Haiku model for our agent.  
-We also defined that our agent will be based on the Claude Code harness. Since we want to keep this example simple, we don't set any further harness configuration.
+We've created an agent! Notice that we've given it a name, selected its model and harness, and gave it its task.
 
 We can build this agent and get a runnable container image:
 
@@ -67,7 +42,6 @@ af build -f agentfile.yaml
 docker images | grep 'hello-world'
 ```
 
-The resulting image contains the packaged agent definition and runtime setup.
 To run it, you only need to provide your LLM provider credentials:
 
 ```bash
@@ -75,7 +49,9 @@ export ANTHROPIC_API_KEY='ant-...'
 docker run -e ANTHROPIC_API_KEY hello-world:latest
 ```
 
-You handle the agent image like any other container image:
+Notice that by including a `prompt`, we've defined the agent's task, and thus created a [one-shot agent](./one-shot.md). Running it resembles running a script or an executable binary - it will perform its task and exit, without requiring our input. This is useful in scripts and automations.
+
+You can handle the agent image like any other container image:
 
 ```bash
 docker tag hello-world:latest itaysk/hello-world:latest
@@ -83,7 +59,7 @@ docker push itaysk/hello-world:latest
 kubectl run hello-world --image itaysk/hello-world:latest --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 ```
 
-In the example, the prompt was defined inside the agentfile. In a real project it is often managed in a dedicated file or a remote location. Let's see how Agentfile helps facilitate this.
+In the example, the prompt was defined inside the agentfile definition. In a real project it would often be managed in a dedicated file or a remote location. Let's see how Agentfile helps facilitate this.
 
 ---
 
@@ -129,10 +105,10 @@ spec:
 Notice that we've added a skill to our agent, and we source it from the conventional skills directory structure, as indicated by the `fs` (filesystem) source.  
 Also notice we've added a system prompt to our agent, and we source it from a remote repository, as indicated by the `git` source.
 
-When you build the agent, assets are gathered and assembled automatically!
+When you build this agent, assets are gathered and assembled automatically.
 
-Real-world agents can be Markdown-heavy, with many files that make up the agent. Listing every single file in the agentfile would be painful, but luckily that's not required.
-Common prompt, system prompt, and skill assets have file and directory conventions. If you create files in those conventional locations, they are recognized automatically.
+Real-world agents can be Markdown-heavy, with many files that make up the agent. Listing every single file in the agentfile would be painful, but luckily that's not required.  
+Common fields such as prompt, system prompt, and skills are discovered automatically from conventional file names.
 
 ```
 agentfile.yaml
@@ -197,8 +173,7 @@ FROM itaysk/claudecode:latest
 ADD --unpack https://github.com/Code-Hex/Neo-cowsay/releases/download/v2.0.4/cowsay_2.0.4_Linux_arm64.tar.gz /usr/local/bin
 ```
 
-Notice we started "from" the default Claude Code base image, meaning we're extending it.  
-We've added a binary from the web, extracted it, and placed it in the conventional system binaries location, so it should be ready to use.
+Notice we started "from" the default Claude Code base image, meaning we're extending it. We've installed a custom binary which our agent can now use.
 
 Build and tag this base image as `my-claudecode-base:latest`, then use the `image` field:
 
@@ -250,14 +225,14 @@ spec:
         command: ["uv", "tool", "run", "mcp-server-time"]
 ```
 
-Notice the Dockerfile installed the MCP server in the agent image, and the agentfile registers it with the harness (Claude Code in this case).
+Notice the Dockerfile installed the MCP server into the agent image, and the agentfile registered it with the harness (Claude Code in this case).
 
 ---
 
 ## Workspace
 
 The agent's "workspace" is the special directory `/agent/workspace` inside the agent container. The agent is configured to use it for work-in-progress, state, and artifacts storage.  
-You can bind-mount the workspace to an existing directory. Do this if you want to seed agent's workspace (input), or access the agent's work once it's done (output).
+When running an agent, you can bind-mount the workspace to an existing directory. Do this if your agent needs to work in existing directory (input), or if you will want to access the agent's artifacts once it's done (output).
 
 ```yaml source=/docs/examples/hello-world-workspace/agentfile1.yaml
 apiVersion: agentfile.build/v1
@@ -278,7 +253,7 @@ spec:
       write the result into a zip file called `greeting.zip`.
 ```
 
-Notice the agent handles input and output via the workspace.
+Notice the agent expects an input in the workspace, and will produce an artifact in the workspace that you can later review.
 
 ```bash
 mkdir /tmp/greetings && cd /tmp/greetings
@@ -287,7 +262,7 @@ docker run --rm -v /tmp/greetings:/agent/workspace hello-world:latest
 unzip -p ./greeting.zip # print the contents of the zip
 ```
 
-So far we've built the agent image and ran it as a regular container. While that's useful for deploying agents, running agents with the CLI runner has some benefits.
+So far we've built the agent image and ran it as a regular container. While that's useful for deploying agents, running agents with the CLI runner has some additional benefits.
 
 ---
 
@@ -296,39 +271,17 @@ So far we've built the agent image and ran it as a regular container. While that
 Use the `run` command to shorten long docker commands and register agents for repeatable execution:
 
 ```bash
-af run -f agentfile.yaml # build & run in one go
-af agents register -f agentfile.yaml # register hello-world agent
-af run hello-world # run agent by name, no need to locate the agentfile.
+af run --file agentfile.yaml # build & run in one go
+af run --image hello-world:latest # run a built agent
+af agents register -f agentfile.yaml # register an agent in the system
+af run hello-world # run registered agent by name
 ```
 
-You can override some agentfile fields at runtime:
+You can override some agentfile fields at runtime. This lets you reuse agent as templates:
 
 ```bash
 af run hello-world --prompt "say something else"
 af run hello-world --model "claude-sonnet-4-5"
-```
-
-This feature can be utilized for creating ad-hoc agents.  
-Create a general agent as a template:
-
-```yaml
-apiVersion: agentfile.build/v1
-kind: Agent
-metadata:
-  name: cc
-spec:
-  harness:
-    claudecode: {}
-  llm:
-    anthropic:
-      model: claude-haiku-4-5
-```
-
-Then launch ad-hoc agents based on it:
-
-```bash
-af run cc --prompt "say hi!"
-af run cc --prompt "say bye!"
 ```
 
 The run CLI can also facilitate runtime setup.  
@@ -336,15 +289,25 @@ For example, the `--workspace` flag lets you set a host directory to bind-mount 
 
 ```bash
 af run hello-world --workspace /tmp/greetings
-
-cd /tmp/greetings && af run hello-world --ws .
+git checkout fix-bug && af run hello-world --ws .
 ```
 
-This pattern is especially useful for agents that perform the same work on different working directories. For example, a planner agent, coder agent, reviewer agent, all collaborating on the same code repository.
+This pattern is especially useful for agents contribute to the same directory. For example, a planner agent, coder agent, reviewer agent, all collaborating on the same code repository.
+
+So far, our examples demonstrated "one-shot" agent - the agent's task was predefined and it ran to completion. But agents can also run interactively.
+
+`af run --tui` lets you chat with the agent in the terminal. This will open the selected harness's native interactive terminal.
+
+```bash
+af run code-review --tui --workspace .
+```
+
+`af run --acp` lets you integrate your agents with your IDE, Terminal, or otehr [ACP](https://agentclientprotocol.com)-compatible application.  
+For example, you could spawn your customized code review agent from your IDE, in the context of the project you're currently working on.
 
 ---
 
 # Next steps
 
-- [Examples](./examples/examples.md)
+- [Examples](./examples/README.md)
 - [Reference documentation](./reference/reference.md)

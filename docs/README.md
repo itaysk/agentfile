@@ -1,6 +1,7 @@
 - [Tutorial](tutorial.md) - Walkthrough of Agentfile design rationale and core concepts.
 - [Examples](examples/) - Example files for feature walkthroughs and sanity tests.
 - [Reference Manual](reference/reference.md) - Product manual and implementation specification.
+- [One-shot Scriptable Agnets](one-shot.md) - How agentfile helps using AI agents in automation scenarios.
 - [Harness Reference](reference/harness.md) - Harness-specific runtime mappings.
 - [agentfile schema](reference/agentfile.schema.json) - JSON Schema for agentfile documents.
 - [agentfile schema example](reference/agentfile.yaml) - Example agentfile with all possible fields and features.

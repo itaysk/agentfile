@@ -11,3 +11,5 @@ List of related projects, ideas, and inspiration.
 - https://docs.langchain.com/langsmith/fleet
 - https://github.com/adeelahmad/agentrc
 - https://github.com/sozercan/agentkit
+- https://agenticresourcediscovery.org/
+- https://microsoft.github.io/apm/

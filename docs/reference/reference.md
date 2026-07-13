@@ -1,8 +1,12 @@
 # Agentfile Manual
 
+Agentfile lets you build portable and custom AI agents easily.
+
+- No code, declarative agents - driven by Markdown and YAML and managed in git.  
+- Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
+- Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
+ 
 This file is the product manual and implementation spec.  
-Agentfile builds runnable agent container images from one YAML file and project conventions.  
-An implementation must do the behavior described here. Nothing else is part of Agentfile.
 
 ## Table of Contents
 
@@ -29,6 +33,8 @@ An implementation must do the behavior described here. Nothing else is part of A
 - [CLI](#cli)
   - [Build](#build)
   - [Run](#run)
+    - [TUI Mode](#tui-mode)
+    - [ACP Mode](#acp-mode)
     - [Field Overrides](#field-overrides)
   - [Agents](#agents)
     - [Register](#register)
@@ -225,7 +231,7 @@ If `CODEX_ACCESS_TOKEN` is set, it takes precedence over `CODEX_API_KEY` and `OP
 
 ### Prompt
 
-Use `spec.prompt` to give the agent its one-shot task.  
+In one-shot mode, use `spec.prompt` to specfy the agent's task. This is the one and only prompt in one-shot mode. A one-shot run must receive a prompt from `spec.prompt` or a runtime prompt override.
 Prompt content is supplied with a [source object](#sources).
 The prompt can be overridden for a single agent run using the `--prompt` flag.
 
@@ -238,7 +244,7 @@ spec:
 
 ### System Prompt
 
-Use `spec.systemPrompt` for standing instructions that apply before the user prompt.  
+Use `spec.systemPrompt` for standing instructions that define the agent's charecter and behavior.
 System prompt content is supplied with a [source object](#sources).
 
 ```yaml
@@ -542,6 +548,16 @@ metadata.name:metadata.version
 
 Run starts an agent container and prints the agent stdout. `af run` is an alias for `af agents run`.
 
+The run command supports three execution modes:
+
+| Mode | Selection | Task source | Lifecycle |
+| --- | --- | --- | --- |
+| One-shot | default | `spec.prompt` or `--prompt` | performs one task and exits |
+| TUI | `--tui` | user interacts with the agent in terminal UI | lasts for the terminal session |
+| ACP | `--acp` | messages from an ACP client | controlled by the client |
+
+The three modes are mutually exclusive, therefore the flags `--tui`, `--acp`, and `--prompt` are mutually exclusive.
+
 ```bash
 af agents run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]
 ```
@@ -578,7 +594,7 @@ Run steps:
 
 Every variable referenced by a `runtimeEnv` field in the spec is set automatically when present on host. See [Runtime Variables](#runtime-variables) for details.
 
-When the run command receives piped input on stdin, that input is forwarded to the agent, so you can stream data to it:
+In one-shot mode, piped stdin is forwarded to the agent as input in addition to its effective prompt:
 
 ```bash
 tail -200 app.log | af run log-triage
@@ -601,9 +617,9 @@ For image-based selection, TUI mode requires the `build.agentfile.harness` label
 `--acp` flag allows integrating the agent with an [Agent Client Protocol](https://agentclientprotocol.com)-compatible client. This allows you to use your agents with your IDE, Terminal or agent management UI.  
 Configuration varies based on client - where client asks for a command to run, supply the `af run` command that runs your agents, and add the `--acp` flag.
 
-the ACP client supplies a workspace for each session. The request's absolute `cwd` is mounted at `/agent/workspace`. `--workspace` and `--ws` are not supported with `--acp`.
+The ACP client supplies a workspace for each session. The request's absolute `cwd` is mounted at `/agent/workspace`. `--workspace` and `--ws` are not supported with `--acp`.
 
-the ACP client supplies the user input. Prompt `spec.prompt` and `--prompt` is ignored in ACP mode.
+The ACP client supplies the user input. `spec.prompt` is ignored in ACP mode, and `--prompt` is rejected.
 
 The ACP bridge accepts text and resource-link prompts and supports streamed messages, thoughts, tool calls, cancellation, and close. It does not advertise other ACP features.
 
@@ -615,10 +631,12 @@ Client-provided MCP servers are rejected since MCP server definition and configu
 
 Run supports overriding certain agentfile fields:
 
-- `--prompt` or `AGENTFILE_PROMPT` replaces the image's default prompt in one-shot mode. It can also supply the prompt when the agentfile does not define one.
-- `--model` fields or `AGENTFILE_MODEL` environment variable replaces the image's default model. The provider remains the one declared in the agentfile.
+- `--prompt` replaces the image's default prompt in one-shot mode. It can also supply the prompt when the agentfile does not define one.
+- `--model` replaces the image's default model. The provider remains the one declared in the agentfile.
 
 These values are passed to the container at runtime. They do not modify the effective agentfile or the image. Other agentfile fields cannot be overridden.
+
+When running an agent image directly with a container runtime, `AGENTFILE_PROMPT` and `AGENTFILE_MODEL` are the equivalent entrypoint-level overrides.
 
 ```bash
 af run hello-world --prompt "say hi"
