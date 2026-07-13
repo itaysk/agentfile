@@ -20,7 +20,7 @@ af agents run \ # run agent
     --env KEY[=VALUE] \ # set an environment variable in the container. if VALUE is omitted, the value is taken from the current environment
     --env-file FILE \ # load environment variables from an .env file
     --env-auto \ # export runtime variables declared in the agentfile from the host environment
-    --debug # print build progress and agent stderr
+    --debug # stream build progress and agent stderr; failed one-shot stderr is printed even without this flag
 
 af agents register \ # register an agent
     myagent \ # name of agent

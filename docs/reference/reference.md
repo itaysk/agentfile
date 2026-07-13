@@ -591,7 +591,9 @@ Run steps:
 `--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
 `--env-file FILE` loads environment variables from an `.env` file.
 `--env-auto` forwards every variable referenced by a `runtimeEnv` field when that variable is present in the host environment. Explicit `--env` values take precedence.
-`--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result. TUI mode always attaches stderr and shows build progress. ACP mode always reserves stdout for protocol messages and sends diagnostics to stderr. Image pull progress is always printed to stderr.
+
+`--debug` streams build progress and agent stderr to stderr (which aren't streamed by default). If a one-shot run exits with non-zero code, its captured stderr is printed automatically. TUI mode always attaches stderr and shows build progress. ACP mode always reserves stdout for protocol messages and sends diagnostics to stderr. Image pull progress is always printed to stderr.
+
 
 In one-shot mode, piped stdin is forwarded to the agent as input in addition to its effective prompt:
 

@@ -27,6 +27,7 @@ type Options struct {
 	Stdin           io.Reader
 	Stdout          io.Writer
 	Stderr          io.Writer
+	FailureStderr   io.Writer
 	Image           string
 	Harness         string
 	RuntimeEnvNames []string
@@ -143,10 +144,19 @@ func runContainer(ctx context.Context, options Options) (int, error) {
 		cmd.Stdin = options.Stdin
 	}
 	cmd.Stdout = options.Stdout
-	cmd.Stderr = options.Stderr
+	var failureStderr strings.Builder
+	captureFailureStderr := options.Mode == RunModeOneShot && options.FailureStderr != nil
+	if captureFailureStderr {
+		cmd.Stderr = &failureStderr
+	} else {
+		cmd.Stderr = options.Stderr
+	}
 	if err := cmd.Run(); err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
+			if captureFailureStderr && failureStderr.Len() > 0 {
+				_, _ = io.WriteString(options.FailureStderr, failureStderr.String())
+			}
 			return exitError.ExitCode(), nil
 		}
 		return 1, fmt.Errorf("docker run failed: %w", err)

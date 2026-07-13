@@ -110,8 +110,10 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 		return 1, err
 	}
 	runStderr := io.Discard
+	var failureStderr io.Writer = stderr
 	if options.debug || options.mode != "" {
 		runStderr = stderr
+		failureStderr = nil
 	}
 	// Pull progress goes to real stderr even without --debug: a first pull can
 	// take minutes and stdout stays clean either way.
@@ -133,6 +135,7 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 		Mode:            options.mode,
 		Stdout:          stdout,
 		Stderr:          runStderr,
+		FailureStderr:   failureStderr,
 	}
 	return runner.Run(context.Background(), runOptions)
 }

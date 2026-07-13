@@ -408,6 +408,40 @@ func TestRunImageAdHoc(t *testing.T) {
 	}
 }
 
+func TestRunOneShotShowsStderrOnlyOnFailure(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		exitCode string
+		debug    bool
+		wantErr  bool
+	}{
+		{name: "successful run"},
+		{name: "failed run", exitCode: "17", wantErr: true},
+		{name: "debug run", debug: true, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dockerPath, _ := installCLIFakeDocker(t)
+			t.Setenv("PATH", filepath.Dir(dockerPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("DOCKER_AGENT_STDERR", "authentication failed")
+			t.Setenv("DOCKER_AGENT_EXIT", tt.exitCode)
+
+			args := []string{"run", "--image", "acme/triage:1.2", "--prompt", "say hi"}
+			if tt.debug {
+				args = append(args, "--debug")
+			}
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			code := Run(args, &stdout, &stderr)
+			if (code != 0) != (tt.exitCode != "") {
+				t.Fatalf("exit code = %d, configured exit = %q", code, tt.exitCode)
+			}
+			if got := strings.Contains(stderr.String(), "authentication failed"); got != tt.wantErr {
+				t.Fatalf("stderr = %q, contains authentication error = %t, want %t", stderr.String(), got, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestRegisterRejectsFileAndImage(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -450,6 +484,14 @@ fi
 if [ "$1" = "pull" ]; then
   echo "pulling $2" >&2
   exit 0
+fi
+if [ "$1" = "run" ]; then
+  if [ -n "${DOCKER_AGENT_STDERR:-}" ]; then
+    echo "$DOCKER_AGENT_STDERR" >&2
+  fi
+  if [ -n "${DOCKER_AGENT_EXIT:-}" ]; then
+    exit "$DOCKER_AGENT_EXIT"
+  fi
 fi
 exit 0
 `)
