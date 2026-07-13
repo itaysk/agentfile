@@ -373,7 +373,7 @@ spec:
 Runtime variables are required at runtime: the container fails at start when a runtime variable isn't provided.  
 Empty is a value: a variable set to the empty string is used verbatim; only an unset variable is considered not provided.  
 
-`af run` automatically forwards declared runtime variables from the host environment, see [Run](#run).
+`af run --env-auto` forwards declared runtime variables from the host environment. See [Run](#run).
 
 ### Workspace
 
@@ -559,7 +559,7 @@ The run command supports three execution modes:
 The three modes are mutually exclusive, therefore the flags `--tui`, `--acp`, and `--prompt` are mutually exclusive.
 
 ```bash
-af agents run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]
+af agents run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--env-auto] [--debug]
 ```
 
 Agent selection:
@@ -578,7 +578,7 @@ Run steps:
 1. If running an agentfile, build it into an image first.
 2. If running an agent image, pull the image if needed.
 3. Bind the workspace if requested.
-4. Pass runtime environment variables.
+4. Setup environment variables.
 5. Start the container.
 6. Print the agent stdout, attach the terminal in TUI mode, or serve ACP over stdio.
 7. Exit with the container exit code.
@@ -590,9 +590,8 @@ Run steps:
 
 `--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
 `--env-file FILE` loads environment variables from an `.env` file.
+`--env-auto` forwards every variable referenced by a `runtimeEnv` field when that variable is present in the host environment. Explicit `--env` values take precedence.
 `--debug` prints build progress and agent stderr to stderr. Without `--debug`, build logs and agent stderr are hidden so stdout contains only the agent result. TUI mode always attaches stderr and shows build progress. ACP mode always reserves stdout for protocol messages and sends diagnostics to stderr. Image pull progress is always printed to stderr.
-
-Every variable referenced by a `runtimeEnv` field in the spec is set automatically when present on host. See [Runtime Variables](#runtime-variables) for details.
 
 In one-shot mode, piped stdin is forwarded to the agent as input in addition to its effective prompt:
 

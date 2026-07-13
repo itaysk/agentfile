@@ -10,7 +10,7 @@ spec:
       model: claude-haiku-4-5
   prompt:
     text: |
-      say hi!
+      say hi to the user $LOGNAME
   envs:
     - name: CLAUDE_CODE_OAUTH_TOKEN
       runtimeEnv:

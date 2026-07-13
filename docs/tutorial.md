@@ -284,7 +284,7 @@ af run hello-world --prompt "say something else"
 af run hello-world --model "claude-sonnet-4-5"
 ```
 
-The run CLI can also facilitate runtime setup.  
+The `run` command can also facilitate runtime setup.  
 For example, the `--workspace` flag lets you set a host directory to bind-mount to the workspace instead of writing the Docker mount manually. Use `--ws` as a shorter alias.
 
 ```bash
@@ -292,7 +292,35 @@ af run hello-world --workspace /tmp/greetings
 git checkout fix-bug && af run hello-world --ws .
 ```
 
-This pattern is especially useful for agents contribute to the same directory. For example, a planner agent, coder agent, reviewer agent, all collaborating on the same code repository.
+This pattern is especially useful when different agents contribute to the same directory. For example, a planner agent, coder agent, reviewer agent, all collaborating on the same code repository.
+
+Another example, the `run` command lets you quickly set environment varialbes for the agent. The `--env` flag lets you set or export a variable for the agent. In addition, if agent declared its required environment variables, then the `--env-auto` flag will export them automatically from the host.
+
+```source=/docs/examples/hello-world/agentfile2.yaml
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: hello-world
+spec:
+  harness:
+    claudecode: {}
+  llm:
+    anthropic:
+      model: claude-haiku-4-5
+  prompt:
+    text: |
+      say hi to the user $LOGNAME
+  envs:
+    - name: CLAUDE_CODE_OAUTH_TOKEN
+      runtimeEnv:
+        name: CLAUDE_CODE_OAUTH_TOKEN
+```
+
+```sh
+af run hello-world --env-auto --env LOGNAME
+```
+
+Notice that our agentfile declared a required variable `CLAUDE_CODE_OAUTH_TOKEN`, which is supplied automatically from the host thanks to the `--env-auto` flag (it needs to be exported on the host first). In addition, we have forwarded the user's login name (`LOGNAME`) to the agent.
 
 So far, our examples demonstrated "one-shot" agent - the agent's task was predefined and it ran to completion. But agents can also run interactively.
 

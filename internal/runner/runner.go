@@ -22,6 +22,7 @@ type Options struct {
 	DockerBinary    string
 	Env             map[string]string
 	EnvFiles        []string
+	EnvAuto         bool
 	Workspace       string
 	Stdin           io.Reader
 	Stdout          io.Writer
@@ -122,7 +123,7 @@ func runContainer(ctx context.Context, options Options) (int, error) {
 	if len(runtimeEnvNames) == 0 && options.Project != nil {
 		runtimeEnvNames = options.Project.AgentFile.Spec.RuntimeEnvNames()
 	}
-	envs := runEnv(runtimeEnvNames, options.Env)
+	envs := runEnv(runtimeEnvNames, options.Env, options.EnvAuto)
 	if options.Mode == RunModeTUI {
 		envs["AGENTFILE_RUN_MODE"] = "tui"
 	} else if options.Prompt != nil {
@@ -255,14 +256,16 @@ func shouldForwardStdin(reader io.Reader) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice == 0
 }
 
-// runEnv merges explicit --env values with host-forwarded variables: exactly
-// the runtimeEnv names declared in the spec, nothing implicit. Missing names
-// are not an error here — an --env-file may supply them, and the entrypoint's
-// guard is the authoritative failure point.
-func runEnv(runtimeEnvNames []string, explicit map[string]string) map[string]string {
+// runEnv copies explicit --env values and, when enabled, merges exactly the
+// runtimeEnv names declared in the spec. Missing names are not an error here —
+// an --env-file may supply them, and the entrypoint's guard is authoritative.
+func runEnv(runtimeEnvNames []string, explicit map[string]string, envAuto bool) map[string]string {
 	envs := map[string]string{}
 	for key, value := range explicit {
 		envs[key] = value
+	}
+	if !envAuto {
+		return envs
 	}
 	for _, name := range runtimeEnvNames {
 		if _, ok := envs[name]; ok {

@@ -208,6 +208,7 @@ func TestRunWithImageSkipsBuild(t *testing.T) {
 		DockerBinary:    dockerPath,
 		Image:           image,
 		RuntimeEnvNames: []string{"GITHUB_TOKEN"},
+		EnvAuto:         true,
 		Prompt:          &prompt,
 		Model:           "gpt-5",
 		Stdin:           devNull,
@@ -382,7 +383,7 @@ func TestRunRejectsInvalidWorkspaceHostPathBeforeDocker(t *testing.T) {
 	}
 }
 
-func TestRunEnvForwardsRuntimeEnvNames(t *testing.T) {
+func TestRunEnvForwardsRuntimeEnvNamesOnlyWhenEnabled(t *testing.T) {
 	project := runnerTestProject(t)
 	project.AgentFile.Spec.Envs = []agentfile.Env{
 		{Name: "GH_TOKEN", ValueSource: agentfile.ValueSource{RuntimeEnv: &agentfile.RuntimeEnvSource{Name: "GITHUB_TOKEN"}}},
@@ -391,7 +392,12 @@ func TestRunEnvForwardsRuntimeEnvNames(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "from-host")
 	os.Unsetenv("MISSING_ON_HOST")
 
-	envs := runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{})
+	envs := runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{}, false)
+	if _, ok := envs["GITHUB_TOKEN"]; ok {
+		t.Fatalf("GITHUB_TOKEN forwarded without --env-auto")
+	}
+
+	envs = runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{}, true)
 	if got := envs["GITHUB_TOKEN"]; got != "from-host" {
 		t.Fatalf("GITHUB_TOKEN = %q, want from-host", got)
 	}
@@ -399,7 +405,7 @@ func TestRunEnvForwardsRuntimeEnvNames(t *testing.T) {
 		t.Fatalf("MISSING_ON_HOST forwarded despite being unset on host")
 	}
 
-	envs = runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{"GITHUB_TOKEN": "explicit"})
+	envs = runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{"GITHUB_TOKEN": "explicit"}, true)
 	if got := envs["GITHUB_TOKEN"]; got != "explicit" {
 		t.Fatalf("GITHUB_TOKEN = %q, want explicit --env to win", got)
 	}

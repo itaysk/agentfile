@@ -102,7 +102,7 @@ func runAgents(args []string, stdout, stderr io.Writer) (int, error) {
 
 func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--debug]")
+		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--env-auto] [--debug]")
 		return 0, nil
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
@@ -128,6 +128,7 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 		Model:           options.model,
 		Env:             options.env,
 		EnvFiles:        options.envFiles,
+		EnvAuto:         options.envAuto,
 		Workspace:       options.workspace,
 		Mode:            options.mode,
 		Stdout:          stdout,
@@ -324,6 +325,7 @@ type runFlags struct {
 	image     string
 	env       map[string]string
 	envFiles  []string
+	envAuto   bool
 	workspace string
 	prompt    *string
 	model     string
@@ -486,6 +488,8 @@ func parseRunFlags(args []string, options *runFlags) error {
 			i = next
 		case strings.HasPrefix(arg, "--env-file="):
 			options.envFiles = append(options.envFiles, strings.TrimPrefix(arg, "--env-file="))
+		case arg == "--env-auto":
+			options.envAuto = true
 		case arg == "--debug":
 			options.debug = true
 		case arg == "--tui":

@@ -31,6 +31,7 @@ func TestRunACPStreamsClaudeSession(t *testing.T) {
 		Image:           "acme/claude:latest",
 		Harness:         "claudecode",
 		RuntimeEnvNames: []string{"ACP_TOKEN"},
+		EnvAuto:         true,
 		DockerBinary:    docker,
 		Env:             map[string]string{"EXPLICIT": "value"},
 		Model:           "claude-test",

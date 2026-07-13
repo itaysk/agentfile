@@ -253,9 +253,9 @@ func (a *acpBridge) SetSessionMode(context.Context, acp.SetSessionModeRequest) (
 }
 
 func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*acpSession, error) {
-	envs := runEnv(a.options.RuntimeEnvNames, a.options.Env)
+	envs := runEnv(a.options.RuntimeEnvNames, a.options.Env, a.options.EnvAuto)
 	if len(a.options.RuntimeEnvNames) == 0 && a.options.Project != nil {
-		envs = runEnv(a.options.Project.AgentFile.Spec.RuntimeEnvNames(), a.options.Env)
+		envs = runEnv(a.options.Project.AgentFile.Spec.RuntimeEnvNames(), a.options.Env, a.options.EnvAuto)
 	}
 	envs["AGENTFILE_RUN_MODE"] = "acp"
 	if a.options.Model != "" {

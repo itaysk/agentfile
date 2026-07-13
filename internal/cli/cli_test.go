@@ -28,6 +28,9 @@ func TestRunHelpExitsZero(t *testing.T) {
 	if !strings.Contains(stdout.String(), "--acp") {
 		t.Fatalf("stdout = %q, want --acp in run usage", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "--env-auto") {
+		t.Fatalf("stdout = %q, want --env-auto in run usage", stdout.String())
+	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
@@ -381,7 +384,7 @@ func TestRunImageAdHoc(t *testing.T) {
 	code := Run([]string{
 		"run", "--image", "acme/triage:1.2",
 		"--prompt", "say hi", "--model", "gpt-5",
-		"--workspace", workspace, "--env", "EXTRA=value",
+		"--workspace", workspace, "--env", "EXTRA=value", "--env-auto",
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run exit code = %d, stderr = %q", code, stderr.String())
