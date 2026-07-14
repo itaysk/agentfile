@@ -1,9 +1,9 @@
 # Agentfile Introduction
 
-Agentfile lets you build portable and custom AI agents easily.
+Agentfile helps you build custom agents as portable container images.
 
-- No code, declarative agents - driven by Markdown and YAML and managed in git.
-- Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.
+- No code, declarative agents - driven by Markdown and YAML and managed in git.  
+- Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
 - Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
 
 This is a tutorial that walks you through basic concepts of Agentfile. For the full reference manual see [here](./reference/reference.md).  
@@ -49,7 +49,7 @@ export ANTHROPIC_API_KEY='ant-...'
 docker run -e ANTHROPIC_API_KEY hello-world:latest
 ```
 
-Notice that by including a `prompt`, we've defined the agent's task, and thus created a [one-shot agent](./one-shot.md). Running it resembles running a script or an executable binary - it will perform its task and exit, without requiring our input. This is useful in scripts and automations.
+Notice that by including a `prompt`, we've defined the agent's task, and thus created a [one-shot agent](./use-cases.md#automate). Running it resembles running a script or an executable binary - it will perform its task and exit, without requiring our input. This is useful in scripts and automations.
 
 You can handle the agent image like any other container image:
 

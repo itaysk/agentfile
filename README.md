@@ -1,14 +1,19 @@
 # Agentfile - build your own agent
 
-Don't use the same generic agent for everything - create customized agents that are specialized for each task.
+What is Agentfile?
 
-AI Agents are only as good as YOU make them. But how do you make an agent better? You give it skills, tools, and context. You iterate and improve it over time.
-
-Agentfile lets you build portable and custom AI agents easily.
+Agentfile helps you build custom agents as portable container images.
 
 - No code, declarative agents - driven by Markdown and YAML and managed in git.  
 - Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
 - Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
+
+What can you do with Agentfile?
+
+- Build custom agents specialized for each task. [Read more >>](docs/use-cases.md#customize)
+- Automate business processes with scriptable agents. [Read more >>](docs/use-cases.md#automate)
+- Organize skills across projects and teams. [Read more >>](docs/use-cases.md#organize)
+- Operationalize agents for production and scale. [Read more >>](docs/use-cases.md#operationalize)
 
 Start with a minimal agentfile:
 
@@ -50,7 +55,7 @@ docker push itaysk/my-agent:latest
 kubectl run my-agent --image=itaysk/my-agent:latest
 ```
 
-Build one-shot, scriptable agents:
+Have fun with it:
 
 ```sh
 tail logfile.jsonl | af run log-triage
@@ -62,5 +67,6 @@ cron "0 0 * * *" "af run daily-standup"
 
 - [Installation](./docs/install.md)
 - [Tutorial](./docs/tutorial.md)
+- [Use cases](./docs/use-cases.md)
 - [Examples](./docs/examples)
 - [Reference documentation](./docs/reference/reference.md)

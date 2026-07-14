@@ -1,6 +1,6 @@
 # Agentfile Manual
 
-Agentfile lets you build portable and custom AI agents easily.
+Agentfile helps you build custom agents as portable container images.
 
 - No code, declarative agents - driven by Markdown and YAML and managed in git.  
 - Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
