@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="Build custom agents as portable container images with Agentfile.">
+    <meta property="og:title" content="Agentfile — Build your own agent">
+    <meta property="og:description" content="Build custom agents as portable container images.">
+    <title>Agentfile — Build your own agent</title>
+    <link rel="icon" href="agentfile-mascot.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="shell">
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"><img src="agentfile-mascot.svg" alt=""></span>Agentfile</a>
+      <nav aria-label="Main navigation">
+        <a href="#use-cases">Use cases</a>
+        <a href="https://github.com/itaysk/agentfile/blob/main/docs/tutorial.md">Tutorial</a>
+        <a href="https://github.com/itaysk/agentfile/blob/main/docs/reference/reference.md">Docs</a>
+      </nav>
+      <a class="header-cta" href="https://github.com/itaysk/agentfile/">GitHub ↗</a>
+    </header>
+
+    <main id="top">
+      <section class="hero shell">
+        <div>
+          <h1>Build your <span>own agent.</span></h1>
+          <p class="lead">Agentfile helps you build custom agents as portable container images. Declarative, harness-agnostic, and ready to run anywhere.</p>
+
+          <dl class="hero-pillars">
+            <div><dt>No code, declarative agents</dt><dd>Driven by Markdown and YAML and managed in git.</dd></div>
+            <div><dt>Bring your own harness</dt><dd>Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more</dd></div>
+            <div><dt>Agents as portable container images</dt><dd>Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.</dd></div>
+          </dl>
+        </div>
+
+        <div class="code-card" aria-label="Example agentfile">
+          <p class="code-title">bug-triage-agent/agentfile.yaml<span>YAML</span></p>
+          <pre><code>
+harness:
+    claudecode: {}
+llm:
+    anthropic:
+        model: claude-sonnet-5
+systemPrompt:
+    path: "prompts/systemPromptV3.md"
+prompt:
+    text: "your task is to investigate the bug ..."
+skills:
+    - git:
+        url: "https://github.com/.../kubernetes-sre"
+    - fs:
+        path: "skills/known-issues"
+mcps:
+    - name: logs
+      http:
+        url: "https://internal-logs:1234/mcp"
+          </code></pre>
+        </div>
+      </section>
+
+      <section class="agent-factory shell">
+        <svg class="agent-sprite" aria-hidden="true">
+          <symbol id="agent-body" viewBox="0 0 56 46">
+            <path fill="currentColor" d="M8 7h40v28H8zM1 21h7v7H1zm47 0h7v7h-7zM11 35h4v7h-4zm7 0h4v7h-4zm16 0h4v7h-4zm7 0h4v7h-4z"/>
+            <path class="agent-outline" fill="none" d="M8 7h40v14h7v7h-7v7h-3v7h-4v-7h-3v7h-4v-7H22v7h-4v-7h-3v7h-4v-7H8v-7H1v-7h7z"/>
+            <path fill="var(--ink)" d="M15 14h3v7h-3zm23 0h3v7h-3z"/>
+          </symbol>
+        </svg>
+
+        <div class="build-stream" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+
+        <div class="assembly-line" role="img" aria-label="A row of completed custom pixel agents followed by a ghosted blueprint draft of a new bug-triage agent.">
+          <div class="agent-row">
+            <svg class="pixel-agent" viewBox="0 0 56 46" aria-hidden="true">
+              <use href="#agent-body"/>
+              <path class="accessory" fill-rule="evenodd" d="M10 11h15v14H10zm3 3v8h9v-8zm18-3h15v14H31zm3 3v8h9v-8zM25 16h6v3h-6zM7 16h3v3H7zm39 0h3v3h-3z"/>
+            </svg>
+            <svg class="pixel-agent" viewBox="0 0 56 46" aria-hidden="true">
+              <use href="#agent-body"/>
+              <path class="accessory" d="M12 23h7v-3h7v3h4v-3h7v3h7v4h-4v3h-8v-3h-4v3h-8v-3h-4v-4h-4z"/>
+            </svg>
+            <svg class="pixel-agent" viewBox="0 0 56 46" aria-hidden="true">
+              <use href="#agent-body"/>
+              <path class="accessory" fill-rule="evenodd" d="M16 22h8v3h4v-3h4v3h8v8h-4v4h-5v4h-6v-4h-5v-4h-4zM24 28h8v4h-8z"/>
+            </svg>
+            <svg class="pixel-agent" viewBox="0 0 56 46" aria-hidden="true">
+              <use href="#agent-body"/>
+              <path class="accessory accent-blue" d="M12 5h5V2h22v3h6v7H12zM39 10h12v5H36v-3h3z"/>
+              <path class="accessory" d="M10 11h29v3H10z"/>
+            </svg>
+            <svg class="pixel-agent" viewBox="0 0 56 46" aria-hidden="true">
+              <use href="#agent-body"/>
+              <path class="accessory" fill-rule="evenodd" d="M34 10h12v15H34zm3 3v9h6v-9zM43 25h3v4h-3zm3 4h3v4h-3z"/>
+            </svg>
+            <svg class="pixel-agent" viewBox="0 0 56 46" aria-hidden="true">
+              <use href="#agent-body"/>
+              <path class="accessory" d="M14 4h28v4H14zM10 8h4v9h-4zM42 8h4v9h-4zM5 16h9v14H5zM42 16h9v14h-9z"/>
+            </svg>
+            <svg class="pixel-agent agent-output" viewBox="0 0 56 46" aria-hidden="true">
+              <use href="#agent-body"/>
+              <path class="agent-output-eyes" d="M15 14h3v7h-3zm23 0h3v7h-3z"/>
+            </svg>
+          </div>
+          <div class="conveyor-belt" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section class="use-cases shell" id="use-cases">
+        <h2>What can you do with Agentfile?</h2>
+
+        <fieldset class="case-tabs">
+          <legend>Agentfile use cases</legend>
+          <input class="tab-radio" type="radio" name="use-case" id="case-customize" checked>
+          <input class="tab-radio" type="radio" name="use-case" id="case-automate">
+          <input class="tab-radio" type="radio" name="use-case" id="case-organize">
+          <input class="tab-radio" type="radio" name="use-case" id="case-operationalize">
+
+          <div class="tab-list">
+            <label for="case-customize"><small>01</small>Customize</label>
+            <label for="case-automate"><small>02</small>Automate</label>
+            <label for="case-organize"><small>03</small>Organize</label>
+            <label for="case-operationalize"><small>04</small>Operationalize</label>
+          </div>
+
+          <div class="tab-panels">
+            <article class="case-panel panel-customize">
+              <div class="case-copy">
+                <h3>Don't use the same generic agent for everything.</h3>
+                <p>AI agents are only as good as you make them. But how do you make an agent better? You give it skills, tools, and context.</p>
+                <a href="https://github.com/itaysk/agentfile/blob/main/docs/use-cases.md#customize">Read more →</a>
+              </div>
+              <ul class="case-points">
+                <li><small>Custom</small><strong>Create custom agents specialized for each task.</strong></li>
+                <li><small>Scope</small><strong>Each agent carries its own skill set and configuration.</strong></li>
+                <li><small>Variety</small><strong>Build an army of agents, and summon the right agent for the right task.</strong></li>
+              </ul>
+            </article>
+
+            <article class="case-panel panel-automate">
+              <div class="case-copy">
+                <h3>Build scriptable one-shot agents.</h3>
+                <p>The prompt and goal are baked in. The harness is configured and tuned to run to completion. Standard input, standard output, and exit codes behave as you'd expect from any other process.</p>
+                <a href="https://github.com/itaysk/agentfile/blob/main/docs/use-cases.md#automate">Read more →</a>
+              </div>
+              <div class="case-example">
+                <pre><code>tail logfile.jsonl | af run log-triage
+cd documents &amp;&amp; af run grammar-checker --workspace .
+cron "0 0 * * *" "af run daily-standup"</code></pre>
+              </div>
+            </article>
+
+            <article class="case-panel panel-organize">
+              <div class="case-copy">
+                <h3>Organize skills around agents.</h3>
+                <p>Move beyond one global pool of skills or duplicated repo setups. Each agent carries its own skill set and capabilities.</p>
+                <a href="https://github.com/itaysk/agentfile/blob/main/docs/use-cases.md#organize">Read more →</a>
+              </div>
+              <ul class="case-points">
+                <li><small>Sharing</small><strong>Share and collaborate on your agent setup.</strong></li>
+                <li><small>Control</small><strong>Avoid cross-session, cross-skill contamination. You decide the context, not the agent.</strong></li>
+                <li><small>Reuse</small><strong>No duplication, no conflicts. Easily apply the right skills in the right projects.</strong></li>
+              </ul>
+            </article>
+
+            <article class="case-panel panel-operationalize">
+              <div class="case-copy">
+                <h3>Deploy agents on your terms.</h3>
+                <p>Build Agents as standard container images. Deploy anywhere - your cloud, on-premises Kubernetes, GitHub Actions, or workflow engines.</p>
+                <a href="https://github.com/itaysk/agentfile/blob/main/docs/use-cases.md#operationalize">Read more →</a>
+              </div>
+              <div class="case-example">
+                <pre><code>af build -f myagent.yaml --tag my-agent:latest
+docker push my-agent:latest
+kubectl run my-agent --image=my-agent:latest</code></pre>
+              </div>
+            </article>
+          </div>
+        </fieldset>
+      </section>
+
+      <section class="final shell">
+        <img class="final-mascot" src="agentfile-mascot.svg" alt="" aria-hidden="true">
+        <h2>Ready to start building?</h2>
+        <p>Check out the project on GitHub</p>
+        <a class="button primary" href="https://github.com/itaysk/agentfile">Agentfile →</a>
+      </section>
+    </main>
+
+    <footer class="shell">
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"><img src="agentfile-mascot.svg" alt=""></span>Agentfile</a>
+      <a href="https://github.com/itaysk/agentfile">GitHub ↗</a>
+    </footer>
+  </body>
+</html>

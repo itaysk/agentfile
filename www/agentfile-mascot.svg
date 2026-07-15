@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 46" shape-rendering="crispEdges">
+  <title>Agentfile blueprint mascot</title>
+  <path
+    fill="#2957ff"
+    fill-opacity=".12"
+    stroke="#2957ff"
+    stroke-width="1.5"
+    stroke-dasharray="2 2"
+    vector-effect="non-scaling-stroke"
+    d="M8 7h40v28H8zM1 21h7v7H1zm47 0h7v7h-7zM11 35h4v7h-4zm7 0h4v7h-4zm16 0h4v7h-4zm7 0h4v7h-4z"
+  />
+  <path fill="none" stroke="#2957ff" stroke-width="1" stroke-dasharray="1 1" vector-effect="non-scaling-stroke" d="M15 14h3v7h-3zm23 0h3v7h-3z"/>
+</svg>
