@@ -77,10 +77,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "image": {
-          "type": "string",
-          "minLength": 1
-        },
         "claudecode": {
           "$ref": "#/$defs/emptyObject"
         },

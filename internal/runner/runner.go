@@ -9,48 +9,58 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/itaysk/agentfile/internal/agentfile"
-	buildpkg "github.com/itaysk/agentfile/internal/build"
+	"github.com/itaysk/agentfile/internal/bundle"
+	"github.com/itaysk/agentfile/internal/harness"
+	imagepkg "github.com/itaysk/agentfile/internal/image"
+	"github.com/itaysk/agentfile/internal/runa"
 )
 
 type Options struct {
-	Project         *agentfile.Project
-	Tag             string
-	DockerBinary    string
-	Env             map[string]string
-	EnvFiles        []string
-	EnvAuto         bool
-	Workspace       string
-	Stdin           io.Reader
-	Stdout          io.Writer
-	Stderr          io.Writer
-	FailureStderr   io.Writer
-	Image           string
-	Harness         string
-	RuntimeEnvNames []string
-	Prompt          *string
-	Model           string
-	Mode            RunMode
-	extraDockerArgs []string
+	Project           *agentfile.Project
+	Tag               string
+	BaseImage         string
+	DockerBinary      string
+	Env               map[string]string
+	EnvFiles          []string
+	InheritRuntimeEnv bool
+	Workspace         string
+	Stdin             io.Reader
+	Stdout            io.Writer
+	Stderr            io.Writer
+	FailureStderr     io.Writer
+	WarningStderr     io.Writer
+	ImageRef          string
+	BundlePath        string
+	HarnessName       string
+	RuntimeEnvNames   []string
+	Prompt            *string
+	Model             string
+	Mode              harness.Mode
+	extraDockerArgs   []string
 }
 
-type RunMode string
-
-const (
-	RunModeOneShot RunMode = "oneshot"
-	RunModeTUI     RunMode = "tui"
-	RunModeACP     RunMode = "acp"
-)
-
+// Run invokes a project, agent bundle, or agent image.
 func Run(ctx context.Context, options Options) (int, error) {
-	if options.Project == nil && options.Image == "" {
-		return 1, fmt.Errorf("project is required")
+	inputs := 0
+	if options.Project != nil {
+		inputs++
+	}
+	if options.ImageRef != "" {
+		inputs++
+	}
+	if options.BundlePath != "" {
+		inputs++
+	}
+	if inputs != 1 {
+		return 1, fmt.Errorf("exactly one of project, bundle, or image is required")
 	}
 	if options.Mode == "" {
-		options.Mode = RunModeOneShot
+		options.Mode = harness.ModeOneShot
 	}
 	if options.DockerBinary == "" {
 		options.DockerBinary = "docker"
@@ -67,30 +77,56 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if options.Env == nil {
 		options.Env = map[string]string{}
 	}
+	if options.BundlePath != "" {
+		return runBundle(ctx, options)
+	}
 	switch options.Mode {
-	case RunModeOneShot, RunModeTUI:
-		return runContainer(ctx, options)
-	case RunModeACP:
+	case harness.ModeOneShot, harness.ModeTUI:
+		return runDocker(ctx, options)
+	case harness.ModeACP:
 		return runACP(ctx, options)
 	default:
 		return 1, fmt.Errorf("unsupported run mode %q", options.Mode)
 	}
 }
 
-func runContainer(ctx context.Context, options Options) (int, error) {
-	harness := options.Harness
-	if options.Project != nil {
-		harness = options.Project.AgentFile.Spec.Harness.Name()
+func runBundle(ctx context.Context, options Options) (int, error) {
+	if options.Mode == harness.ModeACP {
+		return 1, fmt.Errorf("--acp is not supported with --bundle")
 	}
-	if options.Mode == RunModeTUI {
+	if options.Mode == harness.ModeTUI && options.Prompt != nil {
+		return 1, fmt.Errorf("--prompt cannot be used with --tui")
+	}
+	return runa.Run(ctx, runa.Options{
+		BundlePath:    options.BundlePath,
+		Mode:          options.Mode,
+		Env:           options.Env,
+		EnvFiles:      options.EnvFiles,
+		Workspace:     options.Workspace,
+		Prompt:        options.Prompt,
+		Model:         options.Model,
+		Stdin:         options.Stdin,
+		Stdout:        options.Stdout,
+		Stderr:        options.Stderr,
+		WarningStderr: options.WarningStderr,
+		FailureStderr: options.FailureStderr,
+	})
+}
+
+func runDocker(ctx context.Context, options Options) (int, error) {
+	harnessName := options.HarnessName
+	if options.Project != nil {
+		harnessName = options.Project.AgentFile.Spec.Harness.Name()
+	}
+	if options.Mode == harness.ModeTUI {
 		if options.Prompt != nil {
 			return 1, fmt.Errorf("--prompt cannot be used with --tui")
 		}
-		if harness == "" {
-			return 1, fmt.Errorf("image %q predates TUI support (missing %s label); rebuild it with a current af", options.Image, buildpkg.HarnessLabel)
+		if harnessName == "" {
+			return 1, fmt.Errorf("image %q is missing required %s label", options.ImageRef, imagepkg.HarnessLabel)
 		}
 	}
-	if options.Mode == RunModeOneShot && options.Image == "" && options.Project.AgentFile.Spec.Prompt == nil && options.Prompt == nil {
+	if options.Mode == harness.ModeOneShot && options.ImageRef == "" && options.Project.AgentFile.Spec.Prompt == nil && options.Prompt == nil {
 		return 1, fmt.Errorf("run requires an effective prompt")
 	}
 	workspace := options.Workspace
@@ -106,15 +142,15 @@ func runContainer(ctx context.Context, options Options) (int, error) {
 			return 1, fmt.Errorf("workspace host path %q is not a directory", workspace)
 		}
 	}
-	forwardStdin := options.Mode == RunModeTUI || shouldForwardStdin(options.Stdin)
+	forwardStdin := options.Mode == harness.ModeTUI || shouldForwardStdin(options.Stdin)
 
-	tag, err := resolveRunImage(ctx, options)
+	imageRef, err := selectOrBuildImage(ctx, options)
 	if err != nil {
 		return 1, err
 	}
 
 	args := []string{"run", "--rm"}
-	if options.Mode == RunModeTUI {
+	if options.Mode == harness.ModeTUI {
 		args = append(args, "-it")
 	} else if forwardStdin {
 		args = append(args, "-i")
@@ -124,20 +160,20 @@ func runContainer(ctx context.Context, options Options) (int, error) {
 	if len(runtimeEnvNames) == 0 && options.Project != nil {
 		runtimeEnvNames = options.Project.AgentFile.Spec.RuntimeEnvNames()
 	}
-	envs := runEnv(runtimeEnvNames, options.Env, options.EnvAuto)
-	if options.Mode == RunModeTUI {
-		envs["AGENTFILE_RUN_MODE"] = "tui"
+	env := dockerEnv(runtimeEnvNames, options.Env, options.InheritRuntimeEnv)
+	if options.Mode == harness.ModeTUI {
+		env["AGENTFILE_RUN_MODE"] = "tui"
 	} else if options.Prompt != nil {
-		envs["AGENTFILE_PROMPT"] = *options.Prompt
+		env["AGENTFILE_PROMPT"] = *options.Prompt
 	}
 	if options.Model != "" {
-		envs["AGENTFILE_MODEL"] = options.Model
+		env["AGENTFILE_MODEL"] = options.Model
 	}
-	args = appendRunEnvironment(args, options.EnvFiles, envs)
+	args = appendDockerEnv(args, options.EnvFiles, env)
 	if workspace != "" {
 		args = append(args, "--mount", "type=bind,source="+workspace+",target=/agent/workspace")
 	}
-	args = append(args, tag)
+	args = append(args, imageRef)
 
 	cmd := exec.CommandContext(ctx, options.DockerBinary, args...)
 	if forwardStdin {
@@ -145,7 +181,7 @@ func runContainer(ctx context.Context, options Options) (int, error) {
 	}
 	cmd.Stdout = options.Stdout
 	var failureStderr strings.Builder
-	captureFailureStderr := options.Mode == RunModeOneShot && options.FailureStderr != nil
+	captureFailureStderr := options.Mode == harness.ModeOneShot && options.FailureStderr != nil
 	if captureFailureStderr {
 		cmd.Stderr = &failureStderr
 	} else {
@@ -164,25 +200,63 @@ func runContainer(ctx context.Context, options Options) (int, error) {
 	return 0, nil
 }
 
-func resolveRunImage(ctx context.Context, options Options) (string, error) {
-	if options.Image != "" {
-		return options.Image, nil
+func selectOrBuildImage(ctx context.Context, options Options) (string, error) {
+	if options.ImageRef != "" {
+		return options.ImageRef, nil
 	}
-	return buildpkg.Build(ctx, buildpkg.Options{
+	return BuildImage(ctx, BuildImageOptions{
 		Project:      options.Project,
 		Tag:          options.Tag,
+		BaseImage:    options.BaseImage,
 		DockerBinary: options.DockerBinary,
 		Stdout:       options.Stderr,
 		Stderr:       options.Stderr,
 	})
 }
 
-func appendRunEnvironment(args, envFiles []string, envs map[string]string) []string {
-	for _, envFile := range envFiles {
-		args = append(args, "--env-file", envFile)
+type BuildImageOptions struct {
+	Project      *agentfile.Project
+	BundlePath   string
+	Tag          string
+	BaseImage    string
+	DockerBinary string
+	Stdout       io.Writer
+	Stderr       io.Writer
+}
+
+// BuildImage builds an agent image from a project or agent bundle.
+func BuildImage(ctx context.Context, options BuildImageOptions) (string, error) {
+	if (options.Project == nil) == (options.BundlePath == "") {
+		return "", fmt.Errorf("exactly one of project or bundle is required")
 	}
-	for _, key := range slices.Sorted(maps.Keys(envs)) {
-		args = append(args, "-e", key+"="+envs[key])
+	bundlePath := options.BundlePath
+	if options.Project != nil {
+		tempDir, err := os.MkdirTemp("", "agentfile-image-bundle-*")
+		if err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(tempDir)
+		bundlePath = filepath.Join(tempDir, "agent.tar.gz")
+		if err := bundle.Build(options.Project, bundlePath); err != nil {
+			return "", err
+		}
+	}
+	return imagepkg.Build(ctx, imagepkg.Options{
+		BundlePath:   bundlePath,
+		BaseImage:    options.BaseImage,
+		Tag:          options.Tag,
+		DockerBinary: options.DockerBinary,
+		Stdout:       options.Stdout,
+		Stderr:       options.Stderr,
+	})
+}
+
+func appendDockerEnv(args, files []string, env map[string]string) []string {
+	for _, file := range files {
+		args = append(args, "--env-file", file)
+	}
+	for _, key := range slices.Sorted(maps.Keys(env)) {
+		args = append(args, "-e", key+"="+env[key])
 	}
 	return args
 }
@@ -190,11 +264,10 @@ func appendRunEnvironment(args, envFiles []string, envs map[string]string) []str
 type ImageInfo struct {
 	Metadata        agentfile.Metadata
 	RuntimeEnvNames []string
-	Harness         string
+	HarnessName     string
 }
 
-// ReadImageInfo reads agentfile labels from a local image. It never pulls;
-// fetching the image is the caller's decision (see PullImage).
+// ReadImageInfo reads agentfile metadata from a local image.
 func ReadImageInfo(ctx context.Context, dockerBinary, ref string) (*ImageInfo, error) {
 	if dockerBinary == "" {
 		dockerBinary = "docker"
@@ -203,32 +276,35 @@ func ReadImageInfo(ctx context.Context, dockerBinary, ref string) (*ImageInfo, e
 	if err != nil {
 		return nil, err
 	}
-	metadataLabel := labels[buildpkg.MetadataLabel]
+	metadataLabel := labels[imagepkg.MetadataLabel]
 	if metadataLabel == "" {
-		return nil, fmt.Errorf("image %q was not built by agentfile (missing %s label)", ref, buildpkg.MetadataLabel)
+		return nil, fmt.Errorf("image %q was not built by agentfile (missing %s label)", ref, imagepkg.MetadataLabel)
 	}
-	runtimeEnvLabel := labels[buildpkg.RuntimeEnvLabel]
+	runtimeEnvLabel := labels[imagepkg.RuntimeEnvLabel]
 	if runtimeEnvLabel == "" {
-		return nil, fmt.Errorf("image %q was not built by agentfile (missing %s label)", ref, buildpkg.RuntimeEnvLabel)
+		return nil, fmt.Errorf("image %q was not built by agentfile (missing %s label)", ref, imagepkg.RuntimeEnvLabel)
 	}
 	var info ImageInfo
 	if err := json.Unmarshal([]byte(metadataLabel), &info.Metadata); err != nil {
-		return nil, fmt.Errorf("parse %s label from image %q: %w", buildpkg.MetadataLabel, ref, err)
+		return nil, fmt.Errorf("parse %s label from image %q: %w", imagepkg.MetadataLabel, ref, err)
 	}
 	if strings.TrimSpace(info.Metadata.Name) == "" {
-		return nil, fmt.Errorf("image %q has invalid %s label: metadata.name is required", ref, buildpkg.MetadataLabel)
+		return nil, fmt.Errorf("image %q has invalid %s label: metadata.name is required", ref, imagepkg.MetadataLabel)
 	}
 	if info.Metadata.Version == "" {
-		return nil, fmt.Errorf("image %q has invalid %s label: metadata.version is required", ref, buildpkg.MetadataLabel)
+		return nil, fmt.Errorf("image %q has invalid %s label: metadata.version is required", ref, imagepkg.MetadataLabel)
 	}
 	if err := json.Unmarshal([]byte(runtimeEnvLabel), &info.RuntimeEnvNames); err != nil {
-		return nil, fmt.Errorf("parse %s label from image %q: %w", buildpkg.RuntimeEnvLabel, ref, err)
+		return nil, fmt.Errorf("parse %s label from image %q: %w", imagepkg.RuntimeEnvLabel, ref, err)
 	}
-	info.Harness = labels[buildpkg.HarnessLabel]
+	info.HarnessName = labels[imagepkg.HarnessLabel]
+	if info.HarnessName == "" {
+		return nil, fmt.Errorf("image %q was not built by agentfile (missing %s label)", ref, imagepkg.HarnessLabel)
+	}
 	return &info, nil
 }
 
-// PullImage fetches ref, streaming docker's progress to stderr.
+// PullImage fetches ref and writes Docker progress to stderr.
 func PullImage(ctx context.Context, dockerBinary, ref string, stderr io.Writer) error {
 	if dockerBinary == "" {
 		dockerBinary = "docker"
@@ -257,33 +333,30 @@ func inspectImageLabels(ctx context.Context, dockerBinary, ref string) (map[stri
 	return labels, nil
 }
 
-func shouldForwardStdin(reader io.Reader) bool {
-	file, ok := reader.(*os.File)
+func shouldForwardStdin(r io.Reader) bool {
+	file, ok := r.(*os.File)
 	if !ok {
-		return reader != nil
+		return r != nil
 	}
 	info, err := file.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice == 0
 }
 
-// runEnv copies explicit --env values and, when enabled, merges exactly the
-// runtimeEnv names declared in the spec. Missing names are not an error here —
-// an --env-file may supply them, and the entrypoint's guard is authoritative.
-func runEnv(runtimeEnvNames []string, explicit map[string]string, envAuto bool) map[string]string {
-	envs := map[string]string{}
+func dockerEnv(names []string, explicit map[string]string, inherit bool) map[string]string {
+	env := map[string]string{}
 	for key, value := range explicit {
-		envs[key] = value
+		env[key] = value
 	}
-	if !envAuto {
-		return envs
+	if !inherit {
+		return env
 	}
-	for _, name := range runtimeEnvNames {
-		if _, ok := envs[name]; ok {
+	for _, name := range names {
+		if _, ok := env[name]; ok {
 			continue
 		}
 		if value, ok := os.LookupEnv(name); ok {
-			envs[name] = value
+			env[name] = value
 		}
 	}
-	return envs
+	return env
 }

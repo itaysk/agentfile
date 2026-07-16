@@ -10,14 +10,15 @@ import (
 
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// RefTokenPrefix marks runtime-variable placeholders in generated harness
-// config content between build and entrypoint render.
+// RefTokenPrefix marks runtime-variable placeholders in bundle harness
+// configuration templates until a harness profile is prepared.
 const RefTokenPrefix = "__AGENTFILE_REF_"
 
 // reservedEnvPrefix is owned by the generated entrypoint (AGENTFILE_PROMPT,
 // AGENTFILE_ESC_*, ...); user entries must stay out of it.
 const reservedEnvPrefix = "AGENTFILE_"
 
+// Validate checks the agentfile.
 func (af AgentFile) Validate() error {
 	if af.APIVersion != APIVersion {
 		return fmt.Errorf("apiVersion must be %q", APIVersion)
@@ -37,12 +38,10 @@ func (af AgentFile) Validate() error {
 	return nil
 }
 
+// Validate checks the agentfile spec.
 func (s Spec) Validate() error {
 	if s.Harness.SelectorCount() != 1 {
 		return fmt.Errorf("spec.harness must set exactly one of claudecode, codex, or pi")
-	}
-	if s.Harness.Image == "" && s.Harness.BaseImage() == "" {
-		return fmt.Errorf("spec.harness has no supported selector")
 	}
 	if c := s.Harness.ClaudeCode; c != nil && c.Bare {
 		if len(s.Skills) > 0 {
@@ -114,8 +113,9 @@ func validateHarnessProvider(harness, provider string, mcpCount int) error {
 	return nil
 }
 
+// Validate checks the source at path.
 func (s Source) Validate(path string) error {
-	if s.TypeCount() != 1 {
+	if s.VariantCount() != 1 {
 		return fmt.Errorf("%s must set exactly one source type", path)
 	}
 	switch {
@@ -152,16 +152,17 @@ func (s Source) Validate(path string) error {
 	return nil
 }
 
-func validatePathSegment(value, field string) error {
+func validatePathSegment(value, path string) error {
 	if strings.TrimSpace(value) == "" {
-		return fmt.Errorf("%s is required", field)
+		return fmt.Errorf("%s is required", path)
 	}
 	if value == "." || value == ".." || strings.ContainsAny(value, `/\`) {
-		return fmt.Errorf("%s must be a single path segment", field)
+		return fmt.Errorf("%s must be a single path segment", path)
 	}
 	return nil
 }
 
+// Validate checks the MCP at path.
 func (m MCP) Validate(path string) error {
 	if strings.TrimSpace(m.Name) == "" {
 		return fmt.Errorf("%s.name is required", path)
@@ -204,6 +205,7 @@ func (m MCP) Validate(path string) error {
 	return nil
 }
 
+// Validate checks the environment entry at path.
 func (e Env) Validate(path string) error {
 	if !envNamePattern.MatchString(e.Name) {
 		return fmt.Errorf("%s.name must match [A-Za-z_][A-Za-z0-9_]*", path)
@@ -214,6 +216,7 @@ func (e Env) Validate(path string) error {
 	return e.ValueSource.Validate(path)
 }
 
+// Validate checks the HTTP header at path.
 func (h Header) Validate(path string) error {
 	if h.Name == "" {
 		return fmt.Errorf("%s.name is required", path)
@@ -224,8 +227,9 @@ func (h Header) Validate(path string) error {
 	return h.ValueSource.Validate(path)
 }
 
+// Validate checks the value source at path.
 func (v ValueSource) Validate(path string) error {
-	if v.TypeCount() != 1 {
+	if v.VariantCount() != 1 {
 		return fmt.Errorf("%s must set exactly one of value or runtimeEnv", path)
 	}
 	if v.Value != nil && strings.Contains(*v.Value, RefTokenPrefix) {

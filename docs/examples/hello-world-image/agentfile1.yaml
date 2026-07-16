@@ -5,7 +5,6 @@ metadata:
 spec:
   harness:
     claudecode: {}
-    image: cc-cowsay:latest
   llm:
     anthropic:
       model: claude-haiku-4-5

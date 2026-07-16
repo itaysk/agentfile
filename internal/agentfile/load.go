@@ -18,13 +18,14 @@ type Project struct {
 	AgentfilePath string
 }
 
-func Load(fileName string) (*Project, error) {
-	agentfilePath, err := filepath.Abs(fileName)
+// Load loads an agentfile project from path.
+func Load(path string) (*Project, error) {
+	path, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve agentfile path: %w", err)
 	}
 
-	data, err := os.ReadFile(agentfilePath)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read agentfile: %w", err)
 	}
@@ -41,8 +42,8 @@ func Load(fileName string) (*Project, error) {
 
 	project := &Project{
 		AgentFile:     af,
-		ProjectDir:    filepath.Dir(agentfilePath),
-		AgentfilePath: agentfilePath,
+		ProjectDir:    filepath.Dir(path),
+		AgentfilePath: path,
 	}
 	if err := project.ApplyDiscovery(); err != nil {
 		return nil, err
@@ -53,6 +54,7 @@ func Load(fileName string) (*Project, error) {
 	return project, nil
 }
 
+// ApplyDiscovery adds conventionally located project assets.
 func (p *Project) ApplyDiscovery() error {
 	if p.AgentFile.Spec.Prompt == nil {
 		promptPath := filepath.Join(p.ProjectDir, "prompt.md")
@@ -119,6 +121,7 @@ func cleanRelativePath(path string) string {
 	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
 }
 
+// DefaultImageTag returns the image tag derived from project metadata.
 func (p *Project) DefaultImageTag() string {
 	return p.AgentFile.Metadata.Name + ":" + p.AgentFile.Metadata.Version
 }

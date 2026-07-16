@@ -1,4 +1,4 @@
-package config
+package registry
 
 import (
 	"encoding/json"
@@ -17,27 +17,22 @@ type Registry struct {
 type Entry struct {
 	Name          string `json:"name"`
 	AgentfilePath string `json:"agentfilePath,omitempty"`
-	Image         string `json:"image,omitempty"`
+	ImageRef      string `json:"image,omitempty"`
 }
 
-func Dir() (string, error) {
+// Path returns the user-local registry file path.
+func Path() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, appDirName), nil
+	return filepath.Join(base, appDirName, "registry.json"), nil
 }
 
-func RegistryPath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "registry.json"), nil
-}
-
-func LoadRegistry() (*Registry, error) {
-	path, err := RegistryPath()
+// Load reads the user-local registry, returning an empty registry if it does
+// not yet exist.
+func Load() (*Registry, error) {
+	path, err := Path()
 	if err != nil {
 		return nil, err
 	}
@@ -58,15 +53,16 @@ func LoadRegistry() (*Registry, error) {
 	return &registry, nil
 }
 
-func SaveRegistry(registry *Registry) error {
-	path, err := RegistryPath()
+// Save replaces the user-local registry with reg.
+func Save(reg *Registry) error {
+	path, err := Path()
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(registry, "", "  ")
+	data, err := json.MarshalIndent(reg, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -74,13 +70,15 @@ func SaveRegistry(registry *Registry) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-func (r *Registry) Put(entry Entry) {
+// Register adds or replaces an entry by name.
+func (r *Registry) Register(entry Entry) {
 	if r.Agents == nil {
 		r.Agents = map[string]Entry{}
 	}
 	r.Agents[entry.Name] = entry
 }
 
+// Remove deletes name and reports whether it existed.
 func (r *Registry) Remove(name string) bool {
 	if _, ok := r.Agents[name]; !ok {
 		return false
@@ -89,6 +87,7 @@ func (r *Registry) Remove(name string) bool {
 	return true
 }
 
+// SortedEntries returns a copy of the entries ordered by name.
 func (r *Registry) SortedEntries() []Entry {
 	entries := make([]Entry, 0, len(r.Agents))
 	for _, entry := range r.Agents {

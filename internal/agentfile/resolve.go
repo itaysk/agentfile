@@ -25,7 +25,7 @@ const (
 )
 
 type Resolver struct {
-	projectDir string
+	project    *Project
 	tempDir    string
 	httpClient *http.Client
 }
@@ -43,18 +43,23 @@ type ResolvedSkill struct {
 	Dir  string
 }
 
-func NewResolver(projectDir string) (*Resolver, error) {
+// NewResolver returns a resolver for project's declared assets.
+func NewResolver(project *Project) (*Resolver, error) {
+	if project == nil {
+		return nil, fmt.Errorf("project is required")
+	}
 	tempDir, err := os.MkdirTemp("", "agentfile-sources-*")
 	if err != nil {
 		return nil, err
 	}
 	return &Resolver{
-		projectDir: projectDir,
+		project:    project,
 		tempDir:    tempDir,
 		httpClient: &http.Client{Timeout: httpSourceTimeout},
 	}, nil
 }
 
+// Close removes the resolver's temporary files.
 func (r *Resolver) Close() error {
 	if r.tempDir == "" {
 		return nil
@@ -62,7 +67,9 @@ func (r *Resolver) Close() error {
 	return os.RemoveAll(r.tempDir)
 }
 
-func (r *Resolver) ResolveProject(p *Project) (*ResolvedAssets, error) {
+// ResolveProject resolves the resolver's project's declared assets.
+func (r *Resolver) ResolveProject() (*ResolvedAssets, error) {
+	p := r.project
 	assets := &ResolvedAssets{}
 	if p.AgentFile.Spec.Prompt != nil {
 		content, err := r.ResolveFile(*p.AgentFile.Spec.Prompt)
@@ -100,6 +107,7 @@ func (r *Resolver) ResolveProject(p *Project) (*ResolvedAssets, error) {
 	return assets, nil
 }
 
+// ResolveFile resolves source as a file.
 func (r *Resolver) ResolveFile(source Source) ([]byte, error) {
 	switch {
 	case source.Text != nil:
@@ -122,6 +130,7 @@ func (r *Resolver) ResolveFile(source Source) ([]byte, error) {
 	}
 }
 
+// ResolveDirectory resolves source as a directory.
 func (r *Resolver) ResolveDirectory(source Source) (string, error) {
 	switch {
 	case source.Text != nil:
@@ -170,7 +179,7 @@ func (r *Resolver) filesystemPath(source FilesystemSource) string {
 	if source.AbsolutePath != "" {
 		return source.AbsolutePath
 	}
-	return filepath.Join(r.projectDir, filepath.FromSlash(source.Path))
+	return filepath.Join(r.project.ProjectDir, filepath.FromSlash(source.Path))
 }
 
 func (r *Resolver) resolveGit(source GitSource) (string, error) {
@@ -406,6 +415,7 @@ func writeFileFromReader(path string, reader io.Reader, mode os.FileMode) error 
 	return file.Close()
 }
 
+// SkillName reads the name declared by a skill.
 func SkillName(dir string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 	if err != nil {

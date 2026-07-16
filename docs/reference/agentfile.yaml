@@ -5,7 +5,6 @@ metadata:
   version: "" # defaults to latest
 spec:
   harness:
-    image: ""
     # mutually exclusive:
     claudecode: {}
     codex: {}

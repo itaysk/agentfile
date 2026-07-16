@@ -96,7 +96,8 @@ func TestHarnessCLIsWithMockLLM(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 			code, err := Run(ctx, Options{
-				Project:         integrationProject(t, tt.name, baseImage, tt.harness, tt.llm, prompt),
+				Project:         integrationProject(t, tt.name, tt.harness, tt.llm, prompt),
+				BaseImage:       baseImage,
 				Tag:             tag,
 				Env:             env,
 				Stdin:           devNull,
@@ -177,7 +178,7 @@ supports_websockets = false
 		if err := os.WriteFile(filepath.Join(configDir, "models.json"), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		args = append(args, "-v", configDir+":/agent/agentfile/pi/home")
+		args = append(args, "-v", configDir+":/agent/profile/pi/home")
 	}
 	return args
 }
@@ -196,11 +197,10 @@ func assertProviderShape(t *testing.T, path string, body map[string]any) {
 	}
 }
 
-func integrationProject(t *testing.T, name, image string, harness agentfile.Harness, llm agentfile.LLM, promptText string) *agentfile.Project {
+func integrationProject(t *testing.T, name string, harness agentfile.Harness, llm agentfile.LLM, prompt string) *agentfile.Project {
 	t.Helper()
 	projectDir := t.TempDir()
-	prompt := agentfile.TextSource(promptText)
-	harness.Image = image
+	promptSource := agentfile.TextSource(prompt)
 	return &agentfile.Project{
 		ProjectDir:    projectDir,
 		AgentfilePath: filepath.Join(projectDir, "agentfile.yaml"),
@@ -214,7 +214,7 @@ func integrationProject(t *testing.T, name, image string, harness agentfile.Harn
 			Spec: agentfile.Spec{
 				Harness: harness,
 				LLM:     llm,
-				Prompt:  &prompt,
+				Prompt:  &promptSource,
 			},
 		},
 	}
@@ -237,21 +237,21 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-func buildHarnessBaseImage(t *testing.T, repoRoot, name, dockerfile string) string {
+func buildHarnessBaseImage(t *testing.T, root, harness, dockerfile string) string {
 	t.Helper()
-	tag := integrationImageTag(name + "-base")
+	tag := integrationImageTag(harness + "-base")
 	if keepIntegrationImages() && dockerImageExists(tag) {
 		t.Logf("reusing %s", tag)
 		return tag
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "build", "-f", filepath.Join(repoRoot, "images", dockerfile), "-t", tag, repoRoot)
+	cmd := exec.CommandContext(ctx, "docker", "build", "-f", filepath.Join(root, "images", dockerfile), "-t", tag, root)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("build %s base image: %v\n%s", name, err, output.String())
+		t.Fatalf("build %s base image: %v\n%s", harness, err, output.String())
 	}
 	if !keepIntegrationImages() {
 		t.Cleanup(func() { removeDockerImage(tag) })

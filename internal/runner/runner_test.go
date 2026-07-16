@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/itaysk/agentfile/internal/agentfile"
+	"github.com/itaysk/agentfile/internal/bundle"
+	"github.com/itaysk/agentfile/internal/harness"
 )
 
 func TestRunSkipsDockerStdinForDevNull(t *testing.T) {
@@ -87,7 +89,7 @@ func TestRunTUILaunchesPromptlessClaudeWithTTY(t *testing.T) {
 
 	code, err := Run(context.Background(), Options{
 		Project:      project,
-		Mode:         RunModeTUI,
+		Mode:         harness.ModeTUI,
 		Env:          map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "test-token"},
 		DockerBinary: dockerPath,
 		Stdin:        strings.NewReader(""),
@@ -111,33 +113,38 @@ func TestRunTUILaunchesPromptlessClaudeWithTTY(t *testing.T) {
 	}
 }
 
-func TestRunTUIRejectsPromptAndLegacyImages(t *testing.T) {
+func TestRunTUIRejectsPrompt(t *testing.T) {
 	prompt := "not supported"
-	for _, tt := range []struct {
-		name    string
-		options Options
-		want    string
-	}{
-		{
-			name: "prompt",
-			options: Options{
-				Project: runnerTestProject(t), Mode: RunModeTUI, Prompt: &prompt,
-			},
-			want: "--prompt cannot be used with --tui",
-		},
-		{
-			name:    "legacy image",
-			options: Options{Image: "acme/legacy:1", Mode: RunModeTUI},
-			want:    "predates TUI support",
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			code, err := Run(context.Background(), tt.options)
-			if code != 1 || err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("Run = (%d, %v), want error containing %q", code, err, tt.want)
-			}
-		})
+	code, err := Run(context.Background(), Options{Project: runnerTestProject(t), Mode: harness.ModeTUI, Prompt: &prompt})
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "--prompt cannot be used with --tui") {
+		t.Fatalf("Run = (%d, %v)", code, err)
 	}
+}
+
+func TestRunRoutesBundleToRuna(t *testing.T) {
+	binDir := t.TempDir()
+	writeRunnerTestFile(t, filepath.Join(binDir, "codex"), "#!/bin/sh\necho runa\n")
+	if err := os.Chmod(filepath.Join(binDir, "codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	var stdout bytes.Buffer
+	code, err := Run(context.Background(), Options{
+		BundlePath: runnerTestBundle(t),
+		Stdout:     &stdout, Stderr: io.Discard, WarningStderr: io.Discard,
+	})
+	if err != nil || code != 0 || stdout.String() != "runa\n" {
+		t.Fatalf("Run = (%d, %v), stdout = %q", code, err, stdout.String())
+	}
+}
+
+func runnerTestBundle(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "agent.tar.gz")
+	if err := bundle.Build(runnerTestProject(t), path); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestRunAddsExtraDockerArgs(t *testing.T) {
@@ -205,15 +212,15 @@ func TestRunWithImageSkipsBuild(t *testing.T) {
 	image := "registry.example/agent:1.2"
 	prompt := "say runtime hi"
 	code, err := Run(context.Background(), Options{
-		DockerBinary:    dockerPath,
-		Image:           image,
-		RuntimeEnvNames: []string{"GITHUB_TOKEN"},
-		EnvAuto:         true,
-		Prompt:          &prompt,
-		Model:           "gpt-5",
-		Stdin:           devNull,
-		Stdout:          io.Discard,
-		Stderr:          io.Discard,
+		DockerBinary:      dockerPath,
+		ImageRef:          image,
+		RuntimeEnvNames:   []string{"GITHUB_TOKEN"},
+		InheritRuntimeEnv: true,
+		Prompt:            &prompt,
+		Model:             "gpt-5",
+		Stdin:             devNull,
+		Stdout:            io.Discard,
+		Stderr:            io.Discard,
 	})
 	if err != nil || code != 0 {
 		t.Fatalf("Run = (%d, %v), want success", code, err)
@@ -236,11 +243,11 @@ func TestRunWithImageSkipsBuild(t *testing.T) {
 	}
 }
 
-func TestRunAcceptsRuntimePromptWithoutBuildPrompt(t *testing.T) {
+func TestRunAcceptsInvocationPromptWithoutBuildPrompt(t *testing.T) {
 	dockerPath, logPath := installFakeDocker(t)
 	project := runnerTestProject(t)
 	project.AgentFile.Spec.Prompt = nil
-	prompt := "runtime prompt"
+	prompt := "invocation prompt"
 
 	code, err := Run(context.Background(), Options{
 		Project:      project,
@@ -252,8 +259,8 @@ func TestRunAcceptsRuntimePromptWithoutBuildPrompt(t *testing.T) {
 	if err != nil || code != 0 {
 		t.Fatalf("Run = (%d, %v), want success", code, err)
 	}
-	if !strings.Contains(dockerRunArgs(t, logPath), "-e AGENTFILE_PROMPT=runtime prompt") {
-		t.Fatalf("docker run args = %q, want runtime prompt", dockerRunArgs(t, logPath))
+	if !strings.Contains(dockerRunArgs(t, logPath), "-e AGENTFILE_PROMPT=invocation prompt") {
+		t.Fatalf("docker run args = %q, want invocation prompt", dockerRunArgs(t, logPath))
 	}
 }
 
@@ -309,8 +316,8 @@ func TestReadImageInfoReadsLabelsWithoutPulling(t *testing.T) {
 	if strings.Join(info.RuntimeEnvNames, ",") != "GITHUB_TOKEN" {
 		t.Fatalf("runtime env names = %#v, want GITHUB_TOKEN", info.RuntimeEnvNames)
 	}
-	if info.Harness != "claudecode" {
-		t.Fatalf("harness = %q, want claudecode", info.Harness)
+	if info.HarnessName != "claudecode" {
+		t.Fatalf("harness = %q, want claudecode", info.HarnessName)
 	}
 
 	t.Setenv("DOCKER_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "fail-once"))
@@ -347,16 +354,13 @@ func TestReadImageInfoRejectsMissingLabel(t *testing.T) {
 	}
 }
 
-func TestReadImageInfoAllowsLegacyImageWithoutHarnessLabel(t *testing.T) {
+func TestReadImageInfoRejectsMissingHarnessLabel(t *testing.T) {
 	dockerPath, _ := installFakeDocker(t)
 	t.Setenv("DOCKER_MISSING_HARNESS_LABEL", "1")
 
-	info, err := ReadImageInfo(context.Background(), dockerPath, "acme/legacy:1")
-	if err != nil {
-		t.Fatalf("ReadImageInfo returned error for legacy image: %v", err)
-	}
-	if info.Harness != "" {
-		t.Fatalf("harness = %q, want empty legacy value", info.Harness)
+	_, err := ReadImageInfo(context.Background(), dockerPath, "acme/invalid:1")
+	if err == nil || !strings.Contains(err.Error(), "missing build.agentfile.harness label") {
+		t.Fatalf("ReadImageInfo error = %v", err)
 	}
 }
 
@@ -383,7 +387,7 @@ func TestRunRejectsInvalidWorkspaceHostPathBeforeDocker(t *testing.T) {
 	}
 }
 
-func TestRunEnvForwardsRuntimeEnvNamesOnlyWhenEnabled(t *testing.T) {
+func TestDockerEnvInheritsRuntimeEnvNamesOnlyWhenEnabled(t *testing.T) {
 	project := runnerTestProject(t)
 	project.AgentFile.Spec.Envs = []agentfile.Env{
 		{Name: "GH_TOKEN", ValueSource: agentfile.ValueSource{RuntimeEnv: &agentfile.RuntimeEnvSource{Name: "GITHUB_TOKEN"}}},
@@ -392,21 +396,21 @@ func TestRunEnvForwardsRuntimeEnvNamesOnlyWhenEnabled(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "from-host")
 	os.Unsetenv("MISSING_ON_HOST")
 
-	envs := runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{}, false)
-	if _, ok := envs["GITHUB_TOKEN"]; ok {
+	env := dockerEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{}, false)
+	if _, ok := env["GITHUB_TOKEN"]; ok {
 		t.Fatalf("GITHUB_TOKEN forwarded without --env-auto")
 	}
 
-	envs = runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{}, true)
-	if got := envs["GITHUB_TOKEN"]; got != "from-host" {
+	env = dockerEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{}, true)
+	if got := env["GITHUB_TOKEN"]; got != "from-host" {
 		t.Fatalf("GITHUB_TOKEN = %q, want from-host", got)
 	}
-	if _, ok := envs["MISSING_ON_HOST"]; ok {
+	if _, ok := env["MISSING_ON_HOST"]; ok {
 		t.Fatalf("MISSING_ON_HOST forwarded despite being unset on host")
 	}
 
-	envs = runEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{"GITHUB_TOKEN": "explicit"}, true)
-	if got := envs["GITHUB_TOKEN"]; got != "explicit" {
+	env = dockerEnv(project.AgentFile.Spec.RuntimeEnvNames(), map[string]string{"GITHUB_TOKEN": "explicit"}, true)
+	if got := env["GITHUB_TOKEN"]; got != "explicit" {
 		t.Fatalf("GITHUB_TOKEN = %q, want explicit --env to win", got)
 	}
 }

@@ -10,14 +10,16 @@ import (
 	"text/tabwriter"
 
 	"github.com/itaysk/agentfile/internal/agentfile"
-	buildpkg "github.com/itaysk/agentfile/internal/build"
-	"github.com/itaysk/agentfile/internal/config"
+	"github.com/itaysk/agentfile/internal/bundle"
+	"github.com/itaysk/agentfile/internal/harness"
+	"github.com/itaysk/agentfile/internal/registry"
 	"github.com/itaysk/agentfile/internal/runner"
 )
 
-// version is set via -ldflags at release time (see .goreleaser.yaml).
+// version is set via -ldflags
 var version = "dev"
 
+// Run runs af with args and returns its exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		printHelp(stdout)
@@ -34,7 +36,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "build":
 		err = runBuild(args[1:], stdout, stderr)
 	case "run":
-		code, err = runRun(args[1:], stdout, stderr)
+		code, err = runAgent(args[1:], stdout, stderr)
 	case "agents":
 		code, err = runAgents(args[1:], stdout, stderr)
 	default:
@@ -51,23 +53,37 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 func runBuild(args []string, stdout, stderr io.Writer) error {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af build [--file agentfile.yaml] [--tag TAG]")
+		fmt.Fprintln(stdout, "usage: af build [--target image --file agentfile.yaml --base-image REF --tag TAG | --target image --bundle FILE --base-image REF --tag TAG | --target bundle --file agentfile.yaml --output FILE]")
 		return nil
 	}
-	options := buildFlags{file: agentfile.DefaultFileName}
+	options := buildFlags{file: agentfile.DefaultFileName, target: "image"}
 	if err := parseBuildFlags(args, &options); err != nil {
 		return err
 	}
-	project, err := agentfile.Load(options.file)
-	if err != nil {
-		return err
+	if options.target == "bundle" {
+		project, err := agentfile.Load(options.file)
+		if err != nil {
+			return err
+		}
+		output := options.output
+		if output == "" {
+			output = bundle.DefaultFilename(project.AgentFile.Metadata)
+		}
+		if err := bundle.Build(project, output); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Built %s\n", output)
+		return nil
 	}
-	tag, err := buildpkg.Build(context.Background(), buildpkg.Options{
-		Project: project,
-		Tag:     options.tag,
-		Stdout:  stdout,
-		Stderr:  stderr,
-	})
+	buildOptions := runner.BuildImageOptions{BundlePath: options.bundle, BaseImage: options.baseImage, Tag: options.tag, Stdout: stdout, Stderr: stderr}
+	if options.bundle == "" {
+		project, err := agentfile.Load(options.file)
+		if err != nil {
+			return err
+		}
+		buildOptions.Project = project
+	}
+	tag, err := runner.BuildImage(context.Background(), buildOptions)
 	if err != nil {
 		return err
 	}
@@ -81,7 +97,7 @@ func runAgents(args []string, stdout, stderr io.Writer) (int, error) {
 		return 0, nil
 	}
 	if args[0] == "run" {
-		return runRun(args[1:], stdout, stderr)
+		return runAgent(args[1:], stdout, stderr)
 	}
 	var err error
 	switch args[0] {
@@ -100,9 +116,9 @@ func runAgents(args []string, stdout, stderr io.Writer) (int, error) {
 	return 0, nil
 }
 
-func runRun(args []string, stdout, stderr io.Writer) (int, error) {
+func runAgent(args []string, stdout, stderr io.Writer) (int, error) {
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--env-auto] [--debug]")
+		fmt.Fprintln(stdout, "usage: af run [NAME | --file agentfile.yaml | --bundle FILE | --image REF] [--host] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--env-auto] [--debug]")
 		return 0, nil
 	}
 	options := runFlags{file: agentfile.DefaultFileName, env: map[string]string{}}
@@ -117,26 +133,33 @@ func runRun(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	// Pull progress goes to real stderr even without --debug: a first pull can
 	// take minutes and stdout stays clean either way.
-	project, image, runtimeEnvNames, harness, err := loadRunSelection(options, stderr)
+	runOptions, err := selectRunInput(options, stderr)
 	if err != nil {
 		return 1, err
 	}
-	runOptions := runner.Options{
-		Project:         project,
-		Image:           image,
-		Harness:         harness,
-		RuntimeEnvNames: runtimeEnvNames,
-		Prompt:          options.prompt,
-		Model:           options.model,
-		Env:             options.env,
-		EnvFiles:        options.envFiles,
-		EnvAuto:         options.envAuto,
-		Workspace:       options.workspace,
-		Mode:            options.mode,
-		Stdout:          stdout,
-		Stderr:          runStderr,
-		FailureStderr:   failureStderr,
+	if options.host && runOptions.Project != nil {
+		tempDir, err := os.MkdirTemp("", "agentfile-run-bundle-*")
+		if err != nil {
+			return 1, err
+		}
+		defer os.RemoveAll(tempDir)
+		runOptions.BundlePath = filepath.Join(tempDir, "agent.tar.gz")
+		if err := bundle.Build(runOptions.Project, runOptions.BundlePath); err != nil {
+			return 1, err
+		}
+		runOptions.Project = nil
 	}
+	runOptions.Prompt = options.prompt
+	runOptions.Model = options.model
+	runOptions.Env = options.env
+	runOptions.EnvFiles = options.envFiles
+	runOptions.InheritRuntimeEnv = options.envAuto
+	runOptions.Workspace = options.workspace
+	runOptions.Mode = options.mode
+	runOptions.Stdout = stdout
+	runOptions.Stderr = runStderr
+	runOptions.FailureStderr = failureStderr
+	runOptions.WarningStderr = stderr
 	return runner.Run(context.Background(), runOptions)
 }
 
@@ -150,7 +173,7 @@ func runRegister(args []string, stdout io.Writer) error {
 		return err
 	}
 	name := options.name
-	entry := config.Entry{Image: options.image}
+	entry := registry.Entry{ImageRef: options.image}
 	if options.image != "" {
 		info, err := runner.ReadImageInfo(context.Background(), "", options.image)
 		if err != nil {
@@ -170,12 +193,12 @@ func runRegister(args []string, stdout io.Writer) error {
 		entry.AgentfilePath = project.AgentfilePath
 	}
 	entry.Name = name
-	registry, err := config.LoadRegistry()
+	reg, err := registry.Load()
 	if err != nil {
 		return err
 	}
-	registry.Put(entry)
-	if err := config.SaveRegistry(registry); err != nil {
+	reg.Register(entry)
+	if err := registry.Save(reg); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Registered %s\n", name)
@@ -190,15 +213,15 @@ func runList(args []string, stdout io.Writer) error {
 		}
 		return fmt.Errorf("agents list does not accept arguments")
 	}
-	registry, err := config.LoadRegistry()
+	reg, err := registry.Load()
 	if err != nil {
 		return err
 	}
 	writer := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(writer, "NAME\tIMAGE\tAGENTFILE")
-	for _, entry := range registry.SortedEntries() {
-		if entry.Image != "" {
-			fmt.Fprintf(writer, "%s\t%s\t-\n", entry.Name, entry.Image)
+	for _, entry := range reg.SortedEntries() {
+		if entry.ImageRef != "" {
+			fmt.Fprintf(writer, "%s\t%s\t-\n", entry.Name, entry.ImageRef)
 			continue
 		}
 		project, err := agentfile.Load(entry.AgentfilePath)
@@ -218,68 +241,83 @@ func runRemove(args []string, stdout io.Writer) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: af agents remove NAME")
 	}
-	registry, err := config.LoadRegistry()
+	reg, err := registry.Load()
 	if err != nil {
 		return err
 	}
-	if !registry.Remove(args[0]) {
+	if !reg.Remove(args[0]) {
 		return fmt.Errorf("agent %q is not registered", args[0])
 	}
-	if err := config.SaveRegistry(registry); err != nil {
+	if err := registry.Save(reg); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Removed %s\n", args[0])
 	return nil
 }
 
-func loadRunSelection(options runFlags, stderr io.Writer) (*agentfile.Project, string, []string, string, error) {
-	if options.image != "" {
-		image, runtimeEnvNames, harness, err := loadRunImage(options.image, stderr)
-		return nil, image, runtimeEnvNames, harness, err
+func selectRunInput(flags runFlags, progress io.Writer) (runner.Options, error) {
+	if flags.bundle != "" {
+		return runner.Options{BundlePath: flags.bundle}, nil
 	}
-	if options.fileSet {
-		project, err := agentfile.Load(options.file)
-		return project, "", nil, "", err
-	}
-	if options.name != "" {
-		registry, err := config.LoadRegistry()
+	if flags.image != "" {
+		if flags.host {
+			return runner.Options{}, fmt.Errorf("--image cannot be used with --host")
+		}
+		info, err := readOrPullImageInfo(flags.image, progress)
 		if err != nil {
-			return nil, "", nil, "", err
+			return runner.Options{}, err
 		}
-		entry, ok := registry.Agents[options.name]
+		return runner.Options{ImageRef: flags.image, RuntimeEnvNames: info.RuntimeEnvNames, HarnessName: info.HarnessName}, nil
+	}
+	if flags.fileSet {
+		project, err := agentfile.Load(flags.file)
+		return runner.Options{Project: project}, err
+	}
+	if flags.name != "" {
+		reg, err := registry.Load()
+		if err != nil {
+			return runner.Options{}, err
+		}
+		entry, ok := reg.Agents[flags.name]
 		if !ok {
-			return nil, "", nil, "", fmt.Errorf("agent %q is not registered", options.name)
+			return runner.Options{}, fmt.Errorf("agent %q is not registered", flags.name)
 		}
-		if entry.Image != "" {
-			image, runtimeEnvNames, harness, err := loadRunImage(entry.Image, stderr)
-			return nil, image, runtimeEnvNames, harness, err
+		if entry.ImageRef != "" {
+			if flags.host {
+				return runner.Options{}, fmt.Errorf("registered image %q cannot be used with --host", flags.name)
+			}
+			info, err := readOrPullImageInfo(entry.ImageRef, progress)
+			if err != nil {
+				return runner.Options{}, err
+			}
+			return runner.Options{ImageRef: entry.ImageRef, RuntimeEnvNames: info.RuntimeEnvNames, HarnessName: info.HarnessName}, nil
 		}
 		project, err := agentfile.Load(entry.AgentfilePath)
-		return project, "", nil, "", err
+		return runner.Options{Project: project}, err
 	}
 	project, err := agentfile.Load(agentfile.DefaultFileName)
-	return project, "", nil, "", err
+	return runner.Options{Project: project}, err
 }
 
-func loadRunImage(image string, stderr io.Writer) (string, []string, string, error) {
+func readOrPullImageInfo(imageRef string, progress io.Writer) (*runner.ImageInfo, error) {
 	ctx := context.Background()
-	info, err := runner.ReadImageInfo(ctx, "", image)
+	info, err := runner.ReadImageInfo(ctx, "", imageRef)
 	if err != nil {
-		if err := runner.PullImage(ctx, "", image, stderr); err != nil {
-			return "", nil, "", err
+		if err := runner.PullImage(ctx, "", imageRef, progress); err != nil {
+			return nil, err
 		}
-		if info, err = runner.ReadImageInfo(ctx, "", image); err != nil {
-			return "", nil, "", err
+		if info, err = runner.ReadImageInfo(ctx, "", imageRef); err != nil {
+			return nil, err
 		}
 	}
-	return image, info.RuntimeEnvNames, info.Harness, nil
+	return info, nil
 }
 
 func printHelp(w io.Writer) {
 	fmt.Fprintln(w, `usage: af COMMAND [ARGS]
 
 Commands:
-  build              build an agent image
+  build              build an agent bundle or image
   run                run an agent (alias for af agents run)
   agents list        list registered agents
   agents run         run an agent
@@ -310,8 +348,13 @@ func wantsHelp(args []string) bool {
 }
 
 type buildFlags struct {
-	file string
-	tag  string
+	file      string
+	fileSet   bool
+	bundle    string
+	target    string
+	tag       string
+	baseImage string
+	output    string
 }
 
 type registerFlags struct {
@@ -326,6 +369,8 @@ type runFlags struct {
 	file      string
 	fileSet   bool
 	image     string
+	bundle    string
+	host      bool
 	env       map[string]string
 	envFiles  []string
 	envAuto   bool
@@ -333,13 +378,13 @@ type runFlags struct {
 	prompt    *string
 	model     string
 	debug     bool
-	mode      runner.RunMode
+	mode      harness.Mode
 }
 
-// matchStrFlag recognizes "--long value", "short value", "--long=value", and "short=value".
+// matchValueFlag recognizes "--long value", "short value", "--long=value", and "short=value".
 // matched is false when arg is not this flag; err is non-nil only when a value
 // is required but missing.
-func matchStrFlag(args []string, i int, arg, long, short string) (value string, next int, matched bool, err error) {
+func matchValueFlag(args []string, i int, arg, long, short string) (value string, next int, matched bool, err error) {
 	switch {
 	case arg == long || (short != "" && arg == short):
 		v, n, e := consumeValue(args, i, arg)
@@ -352,21 +397,61 @@ func matchStrFlag(args []string, i int, arg, long, short string) (value string, 
 	return "", i, false, nil
 }
 
-func parseBuildFlags(args []string, options *buildFlags) error {
+func parseBuildFlags(args []string, flags *buildFlags) error {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--file", "-f"); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--file", "-f"); matched {
 			if err != nil {
 				return err
 			}
-			options.file, i = value, next
+			flags.file, flags.fileSet, i = value, true, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--tag", ""); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--bundle", ""); matched {
 			if err != nil {
 				return err
 			}
-			options.tag, i = value, next
+			if value == "" {
+				return fmt.Errorf("--bundle requires a value")
+			}
+			flags.bundle, i = value, next
+			continue
+		}
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--target", ""); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("--target requires a value")
+			}
+			flags.target, i = value, next
+			continue
+		}
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--tag", ""); matched {
+			if err != nil {
+				return err
+			}
+			flags.tag, i = value, next
+			continue
+		}
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--base-image", ""); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("--base-image requires a value")
+			}
+			flags.baseImage, i = value, next
+			continue
+		}
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--output", "-o"); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("--output requires a value")
+			}
+			flags.output, i = value, next
 			continue
 		}
 		if strings.HasPrefix(arg, "-") {
@@ -374,20 +459,42 @@ func parseBuildFlags(args []string, options *buildFlags) error {
 		}
 		return fmt.Errorf("build does not accept positional arguments")
 	}
+	if flags.target == "" {
+		flags.target = "image"
+	}
+	if flags.target != "image" && flags.target != "bundle" {
+		return fmt.Errorf("unsupported build target %q", flags.target)
+	}
+	if flags.fileSet && flags.bundle != "" {
+		return fmt.Errorf("--file and --bundle cannot be used together")
+	}
+	if flags.target == "bundle" {
+		if flags.bundle != "" {
+			return fmt.Errorf("--bundle is valid only for image builds")
+		}
+		if flags.tag != "" {
+			return fmt.Errorf("--tag is valid only for image builds")
+		}
+		if flags.baseImage != "" {
+			return fmt.Errorf("--base-image is valid only for image builds")
+		}
+	} else if flags.output != "" {
+		return fmt.Errorf("--output is valid only for bundle builds")
+	}
 	return nil
 }
 
-func parseRegisterFlags(args []string, options *registerFlags) error {
+func parseRegisterFlags(args []string, flags *registerFlags) error {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--file", "-f"); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--file", "-f"); matched {
 			if err != nil {
 				return err
 			}
-			options.file, options.fileSet, i = value, true, next
+			flags.file, flags.fileSet, i = value, true, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--image", ""); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--image", ""); matched {
 			if err != nil {
 				return err
 			}
@@ -395,44 +502,54 @@ func parseRegisterFlags(args []string, options *registerFlags) error {
 				flag, _, _ := strings.Cut(arg, "=")
 				return fmt.Errorf("%s requires a value", flag)
 			}
-			options.image, i = value, next
+			flags.image, i = value, next
 			continue
 		}
 		if strings.HasPrefix(arg, "-") {
 			return fmt.Errorf("unknown register argument %q", arg)
 		}
-		if options.name != "" {
+		if flags.name != "" {
 			return fmt.Errorf("register accepts at most one NAME")
 		}
-		options.name = arg
+		flags.name = arg
 	}
-	if options.fileSet && options.image != "" {
+	if flags.fileSet && flags.image != "" {
 		return fmt.Errorf("--file and --image cannot be used together")
 	}
 	return nil
 }
 
-func parseRunFlags(args []string, options *runFlags) error {
+func parseRunFlags(args []string, flags *runFlags) error {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--file", "-f"); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--file", "-f"); matched {
 			if err != nil {
 				return err
 			}
-			options.file, options.fileSet, i = value, true, next
+			flags.file, flags.fileSet, i = value, true, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--image", ""); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--image", ""); matched {
 			if err != nil {
 				return err
 			}
 			if value == "" {
 				return fmt.Errorf("--image requires a value")
 			}
-			options.image, i = value, next
+			flags.image, i = value, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--workspace", "--ws"); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--bundle", ""); matched {
+			if err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("--bundle requires a value")
+			}
+			flags.bundle, i = value, next
+			continue
+		}
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--workspace", "--ws"); matched {
 			if err != nil {
 				return err
 			}
@@ -444,24 +561,24 @@ func parseRunFlags(args []string, options *runFlags) error {
 			if err != nil {
 				return err
 			}
-			options.workspace, i = abs, next
+			flags.workspace, i = abs, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--prompt", ""); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--prompt", ""); matched {
 			if err != nil {
 				return err
 			}
-			options.prompt, i = &value, next
+			flags.prompt, i = &value, next
 			continue
 		}
-		if value, next, matched, err := matchStrFlag(args, i, arg, "--model", ""); matched {
+		if value, next, matched, err := matchValueFlag(args, i, arg, "--model", ""); matched {
 			if err != nil {
 				return err
 			}
 			if value == "" {
 				return fmt.Errorf("--model requires a value")
 			}
-			options.model, i = value, next
+			flags.model, i = value, next
 			continue
 		}
 		switch {
@@ -474,60 +591,75 @@ func parseRunFlags(args []string, options *runFlags) error {
 			if err != nil {
 				return err
 			}
-			options.env[key] = envValue
+			flags.env[key] = envValue
 			i = next
 		case strings.HasPrefix(arg, "--env="):
 			key, envValue, err := parseEnv(strings.TrimPrefix(arg, "--env="))
 			if err != nil {
 				return err
 			}
-			options.env[key] = envValue
+			flags.env[key] = envValue
 		case arg == "--env-file":
 			value, next, err := consumeValue(args, i, arg)
 			if err != nil {
 				return err
 			}
-			options.envFiles = append(options.envFiles, value)
+			flags.envFiles = append(flags.envFiles, value)
 			i = next
 		case strings.HasPrefix(arg, "--env-file="):
-			options.envFiles = append(options.envFiles, strings.TrimPrefix(arg, "--env-file="))
+			flags.envFiles = append(flags.envFiles, strings.TrimPrefix(arg, "--env-file="))
 		case arg == "--env-auto":
-			options.envAuto = true
+			flags.envAuto = true
 		case arg == "--debug":
-			options.debug = true
+			flags.debug = true
+		case arg == "--host":
+			flags.host = true
 		case arg == "--tui":
-			if options.mode == runner.RunModeACP {
+			if flags.mode == harness.ModeACP {
 				return fmt.Errorf("--tui cannot be used with --acp")
 			}
-			options.mode = runner.RunModeTUI
+			flags.mode = harness.ModeTUI
 		case arg == "--acp":
-			if options.mode == runner.RunModeTUI {
+			if flags.mode == harness.ModeTUI {
 				return fmt.Errorf("--tui cannot be used with --acp")
 			}
-			options.mode = runner.RunModeACP
+			flags.mode = harness.ModeACP
 		case strings.HasPrefix(arg, "-"):
 			return fmt.Errorf("unknown run argument %q", arg)
 		default:
-			if options.name != "" {
+			if flags.name != "" {
 				return fmt.Errorf("run accepts at most one NAME")
 			}
-			options.name = arg
+			flags.name = arg
 		}
 	}
-	if options.image != "" && options.fileSet {
-		return fmt.Errorf("--file and --image cannot be used together")
+	selectionCount := 0
+	if flags.image != "" {
+		selectionCount++
 	}
-	if options.image != "" && options.name != "" {
-		return fmt.Errorf("NAME and --image cannot be used together")
+	if flags.bundle != "" {
+		selectionCount++
 	}
-	if options.fileSet && options.name != "" {
-		return fmt.Errorf("NAME and --file cannot be used together")
+	if flags.fileSet {
+		selectionCount++
 	}
-	if options.prompt != nil && options.mode != "" {
-		return fmt.Errorf("--prompt cannot be used with --%s", options.mode)
+	if flags.name != "" {
+		selectionCount++
 	}
-	if options.mode == runner.RunModeACP && options.workspace != "" {
+	if selectionCount > 1 {
+		return fmt.Errorf("NAME, --file, --bundle, and --image are mutually exclusive")
+	}
+	if flags.image != "" && flags.host {
+		return fmt.Errorf("--image cannot be used with --host")
+	}
+	if flags.prompt != nil && flags.mode != "" {
+		return fmt.Errorf("--prompt cannot be used with --%s", flags.mode)
+	}
+	if flags.mode == harness.ModeACP && flags.workspace != "" {
 		return fmt.Errorf("--workspace cannot be used with --acp; the ACP client supplies the workspace")
+	}
+	if flags.mode == harness.ModeACP && (flags.host || flags.bundle != "") {
+		return fmt.Errorf("--acp is not supported with host execution")
 	}
 	return nil
 }

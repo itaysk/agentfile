@@ -14,6 +14,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 	"github.com/itaysk/agentfile/internal/agentfile"
+	"github.com/itaysk/agentfile/internal/harness"
 )
 
 type acpTestProcess struct {
@@ -28,14 +29,14 @@ func TestRunACPStreamsClaudeSession(t *testing.T) {
 	inputLog := filepath.Join(t.TempDir(), "claude-input.log")
 	t.Setenv("ACP_INPUT_LOG", inputLog)
 	process := startACPTestProcess(t, Options{
-		Image:           "acme/claude:latest",
-		Harness:         "claudecode",
-		RuntimeEnvNames: []string{"ACP_TOKEN"},
-		EnvAuto:         true,
-		DockerBinary:    docker,
-		Env:             map[string]string{"EXPLICIT": "value"},
-		Model:           "claude-test",
-		Stderr:          io.Discard,
+		ImageRef:          "acme/claude:latest",
+		HarnessName:       "claudecode",
+		RuntimeEnvNames:   []string{"ACP_TOKEN"},
+		InheritRuntimeEnv: true,
+		DockerBinary:      docker,
+		Env:               map[string]string{"EXPLICIT": "value"},
+		Model:             "claude-test",
+		Stderr:            io.Discard,
 	})
 
 	process.send(t, 1, "initialize", map[string]any{"protocolVersion": 1})
@@ -134,8 +135,8 @@ func TestRunACPStreamsCodexAndPiSessions(t *testing.T) {
 			inputLog := filepath.Join(t.TempDir(), harness+"-input.log")
 			t.Setenv("ACP_INPUT_LOG", inputLog)
 			process := startACPTestProcess(t, Options{
-				Image:        "acme/" + harness + ":latest",
-				Harness:      harness,
+				ImageRef:     "acme/" + harness + ":latest",
+				HarnessName:  harness,
 				DockerBinary: docker,
 				Stderr:       io.Discard,
 			})
@@ -206,7 +207,7 @@ func TestRunACPCancelsWithoutStoppingSession(t *testing.T) {
 			t.Setenv("ACP_WAIT_INTERRUPT", "1")
 			userSeen := filepath.Join(t.TempDir(), "user-seen")
 			t.Setenv("ACP_USER_SEEN_FILE", userSeen)
-			process := startACPTestProcess(t, Options{Image: tt.image, Harness: tt.harness, DockerBinary: docker, Stderr: io.Discard})
+			process := startACPTestProcess(t, Options{ImageRef: tt.image, HarnessName: tt.harness, DockerBinary: docker, Stderr: io.Discard})
 			process.send(t, 1, "initialize", map[string]any{"protocolVersion": 1})
 			process.response(t, 1)
 			process.send(t, 2, "session/new", map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}})
@@ -248,26 +249,10 @@ func TestRunACPBuildsPromptlessClaude(t *testing.T) {
 	}
 }
 
-func TestRunACPOldImageGetsRebuildError(t *testing.T) {
-	docker, _ := installFakeACPDocker(t)
-	t.Setenv("ACP_OLD_IMAGE", "1")
-	process := startACPTestProcess(t, Options{Image: "acme/old:latest", Harness: "claudecode", DockerBinary: docker, Stderr: io.Discard})
-	process.send(t, 1, "initialize", map[string]any{"protocolVersion": 1})
-	process.response(t, 1)
-	process.send(t, 2, "session/new", map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}})
-	response := process.response(t, 2)
-	errorObject := response["error"].(map[string]any)
-	data := errorObject["data"].(map[string]any)
-	if !strings.Contains(fmt.Sprint(data["error"]), "rebuild it with a current af") {
-		t.Fatalf("session/new error = %#v, want rebuild guidance", errorObject)
-	}
-	process.close(t)
-}
-
-func TestRunACPDoesNotMisdiagnoseUsageErrorAsOldImage(t *testing.T) {
+func TestRunACPSurfacesContainerUsageError(t *testing.T) {
 	docker, _ := installFakeACPDocker(t)
 	t.Setenv("ACP_USAGE_ERROR", "1")
-	process := startACPTestProcess(t, Options{Image: "acme/current:latest", Harness: "claudecode", DockerBinary: docker, Stderr: io.Discard})
+	process := startACPTestProcess(t, Options{ImageRef: "acme/current:latest", HarnessName: "claudecode", DockerBinary: docker, Stderr: io.Discard})
 	process.send(t, 1, "initialize", map[string]any{"protocolVersion": 1})
 	process.response(t, 1)
 	process.send(t, 2, "session/new", map[string]any{"cwd": t.TempDir(), "mcpServers": []any{}})
@@ -275,8 +260,8 @@ func TestRunACPDoesNotMisdiagnoseUsageErrorAsOldImage(t *testing.T) {
 	errorObject := response["error"].(map[string]any)
 	data := errorObject["data"].(map[string]any)
 	message := fmt.Sprint(data["error"])
-	if !strings.Contains(message, "exit status 64") || !strings.Contains(message, "ACP_TOKEN must not contain newlines") || strings.Contains(message, "rebuild") {
-		t.Fatalf("session/new error = %q, want the usage error without rebuild guidance", message)
+	if !strings.Contains(message, "exit status 64") || !strings.Contains(message, "ACP_TOKEN must not contain newlines") {
+		t.Fatalf("session/new error = %q, want the container usage error", message)
 	}
 	process.close(t)
 }
@@ -288,13 +273,12 @@ func TestRunACPRejectsUnknownHarnessAndOverrides(t *testing.T) {
 		options Options
 		want    string
 	}{
-		{name: "unknown", options: Options{Image: "unknown", Harness: "unknown"}, want: "does not support harness"},
-		{name: "legacy", options: Options{Image: "legacy"}, want: "missing build.agentfile.harness"},
-		{name: "prompt", options: Options{Image: "claude", Harness: "claudecode", Prompt: &prompt}, want: "--prompt cannot"},
-		{name: "workspace", options: Options{Image: "claude", Harness: "claudecode", Workspace: "/tmp"}, want: "--workspace cannot"},
+		{name: "unknown", options: Options{ImageRef: "unknown", HarnessName: "unknown"}, want: "does not support harness"},
+		{name: "prompt", options: Options{ImageRef: "claude", HarnessName: "claudecode", Prompt: &prompt}, want: "--prompt cannot"},
+		{name: "workspace", options: Options{ImageRef: "claude", HarnessName: "claudecode", Workspace: "/tmp"}, want: "--workspace cannot"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.options.Mode = RunModeACP
+			tt.options.Mode = harness.ModeACP
 			code, err := Run(context.Background(), tt.options)
 			if code != 1 || err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("Run = (%d, %v), want error containing %q", code, err, tt.want)
@@ -315,7 +299,7 @@ func TestACPNewSessionRejectsClientConfiguration(t *testing.T) {
 
 func startACPTestProcess(t *testing.T, options Options) *acpTestProcess {
 	t.Helper()
-	options.Mode = RunModeACP
+	options.Mode = harness.ModeACP
 	agentInput, clientInput := io.Pipe()
 	clientOutput, agentOutput := io.Pipe()
 	options.Stdin = agentInput
@@ -406,10 +390,6 @@ func installFakeACPDocker(t *testing.T) (string, string) {
 printf '%s\n' "$*" >> "$DOCKER_ARGS_LOG"
 if [ "$1" = "rm" ]; then exit 0; fi
 if [ "$1" != "run" ]; then exit 0; fi
-if [ "${ACP_OLD_IMAGE:-}" = 1 ]; then
-  echo 'agentfile: unsupported run mode acp' >&2
-  exit 64
-fi
 if [ "${ACP_USAGE_ERROR:-}" = 1 ]; then
   echo 'agentfile: ACP_TOKEN must not contain newlines' >&2
   exit 64

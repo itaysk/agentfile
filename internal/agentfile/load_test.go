@@ -52,12 +52,12 @@ body
 		t.Fatalf("skills length = %d, want 1", len(project.AgentFile.Spec.Skills))
 	}
 
-	resolver, err := NewResolver(project.ProjectDir)
+	resolver, err := NewResolver(project)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resolver.Close()
-	assets, err := resolver.ResolveProject(project)
+	assets, err := resolver.ResolveProject()
 	if err != nil {
 		t.Fatalf("ResolveProject returned error: %v", err)
 	}
@@ -353,12 +353,12 @@ spec:
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	resolver, err := NewResolver(project.ProjectDir)
+	resolver, err := NewResolver(project)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resolver.Close()
-	_, err = resolver.ResolveProject(project)
+	_, err = resolver.ResolveProject()
 	if err == nil {
 		t.Fatal("ResolveProject succeeded, want duplicate skill error")
 	}

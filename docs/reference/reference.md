@@ -1,10 +1,10 @@
 # Agentfile Manual
 
-Agentfile helps you build custom agents as portable container images.
+Agentfile helps you build custom and portable agents.
 
-- No code, declarative agents - driven by Markdown and YAML and managed in git.  
-- Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
-- Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
+- No code, declarative agents - Driven by Markdown and YAML and managed in git.  
+- Bring your own harness - Claude, Codex, Pi, and more.  
+- Deploy anywhere - Locally, in cloud, Kubernetes, or CI/CD.
  
 This file is the product manual and implementation spec.  
 
@@ -49,13 +49,20 @@ This file is the product manual and implementation spec.
 These terms are used by the rest of the manual.
 
 - agentfile: YAML file that declares and describes an agent. Commonly named `agentfile.yaml`.
-- Project: directory where the agentfile lives. Used as the build context.
-- Agent: container image produced from an agentfile.
-- Harness: the agent runtime inside the image. Supported harnesses are `claudecode`, `codex`, and `pi`.
+- Project: directory where the agentfile and local source assets live.
+- Agent bundle: deterministic `.tar.gz` archive containing a bundle manifest and materialized assets, but no provisioned executables.
+- Bundle manifest: compiled `manifest.json` definition of an agent bundle and its run-time requirements. It is not an agentfile.
+- Unpacked bundle: directory containing an agent bundle's archive contents.
+- Agent image: container image containing unpacked bundle contents, a harness, tools, and a generated image entrypoint.
+- Harness adapter: component that maps a bundle manifest and harness invocation to harness-specific assets, configuration, and a harness command.
+- Harness invocation: execution mode, workspace, environment, and prompt or model overrides for one harness run.
+- `runa`: Agentfile's unsandboxed host runner for agent bundles.
+- Execution mode: one-shot, TUI, or ACP interaction between the harness and its caller.
+- Harness: Claude Code, Codex, or Pi executable that runs the agent.
 - LLM: the model provider and model used by the harness.
 - Assets: prompt, system prompt, skill, and other markdown content that make up the agent.
 - Sources: strategies for loading content into the build.
-- Workspace: `/agent/workspace` inside the agent container.
+- Workspace: working directory supplied to the harness; `/agent/workspace` in an agent image and the selected or temporary host directory with `runa`.
 
 ## Agentfile
 
@@ -110,9 +117,11 @@ spec:
 
 ### Harness
 
-Choose a harness to set the runtime that executes the agent. The selected harness controls how the agentfile spec is translated into runtime-specific instructions, commands, and configuration.
+Choose the harness executable that runs the agent.
 
-The [Harness reference](./harness.md) is the normative companion for harness-specific behavior. It defines the runtime files, environment variables, commands, and unsupported combinations an implementation must use for each harness.
+The selected harness controls how the agentfile spec is translated into harness-specific instructions, commands, and configuration.
+
+The [Harness reference](./harness.md) is the normative companion for this behavior. It defines profile files, environment variables, commands, and unsupported combinations for each harness.
 
 Exactly one harness selector key must be set.
 
@@ -134,22 +143,13 @@ spec:
     pi: {}
 ```
 
-The optional `image` field sets the base image for the resulting agent image:
-
-```yaml
-spec:
-  harness:
-    image: my-agent-base:latest
-    claudecode: {}
-```
-
-If `image` is omitted, the default base image is selected automatically:
+Image builds accept `--base-image` to override the base image. If omitted, the default is selected from the bundle's harness:
 
 - `claudecode`: `itaysk/claudecode:latest`
 - `codex`: `itaysk/codex:latest`
 - `pi`: `itaysk/pi:latest`
 
-The selected base image must contain the selected harness executable. Agentfile adds the generated entrypoint during build.
+The selected base image must contain the selected harness executable. Agentfile adds the generated entrypoint during image construction.
 The easiest way to create a custom image is to derive from an existing one.  
 Images are built from Dockerfiles in [/images](/images).
 
@@ -201,7 +201,9 @@ spec:
 
 Model names are strings. Agentfile does not validate model catalogs.
 
-LLM credentials are runtime input, injected into the container environment when the agent runs. See [Runtime Variables](#runtime-variables) for how to automate this.
+LLM credentials are invocation input, read from the environment when the agent runs.
+
+See [Runtime Variables](#runtime-variables) for how to automate this.
 
 Well-known harness/LLM provider environment variables:
 
@@ -231,7 +233,9 @@ If `CODEX_ACCESS_TOKEN` is set, it takes precedence over `CODEX_API_KEY` and `OP
 
 ### Prompt
 
-In one-shot mode, use `spec.prompt` to specfy the agent's task. This is the one and only prompt in one-shot mode. A one-shot run must receive a prompt from `spec.prompt` or a runtime prompt override.
+In one-shot mode, use `spec.prompt` to specify the agent's task.
+
+This is the one and only prompt in one-shot mode. A one-shot run must receive a prompt from `spec.prompt` or an invocation prompt override.
 Prompt content is supplied with a [source object](#sources).
 The prompt can be overridden for a single agent run using the `--prompt` flag.
 
@@ -319,7 +323,11 @@ MCP `envs` entries use the same shape and name rules as `spec.envs`, see [Enviro
 For `http`, `url` is required.  
 `headers` is optional. Header entries use the same value rules as `spec.envs` entries, see [Environment](#environment). Name may be any valid HTTP header name (not starting with `AGENTFILE_`).
 
-MCP commands run inside the agent container. Agentfile only registers MCP servers, it does not install MCP server binaries.
+MCP commands run in the same environment as the harness.
+
+Agentfile only registers MCP servers; it does not install MCP server binaries in a bundle or on the host.
+
+An agent image must provide them through its base image.
 
 Note that Claude Code performs its own `${VAR}` expansion on some mcp.json fields after Agentfile renders them, so a value (literal or runtime) whose content contains `${...}` may be further expanded by Claude Code.
 
@@ -339,16 +347,20 @@ spec:
 
 Each entry requires `name` and exactly one value source:
 
-- `value` — a literal, baked into the image at build time.
-- `runtimeEnv` — read from the container environment at run time. See [Runtime Variables](#runtime-variables).
+- `value` — a public literal default stored in the bundle and materialized as an image `ENV` default.
+- `runtimeEnv` — read from the invocation environment. See [Runtime Variables](#runtime-variables).
 
 `name` must match `[A-Za-z_][A-Za-z0-9_]*` and must not start with the reserved prefix `AGENTFILE_`.
 
-Literal values are defaults: a `value` entry is applied only when the variable isn't already set in the container, so an environment variable of the same name passed at run time overrides the baked-in literal.
+Literal values are defaults: a `value` entry is applied only when the variable is not already set.
+
+`runa` checks the inherited environment. An agent image stores the value as an overridable image environment default.
 
 ### Runtime Variables
 
-A `runtimeEnv` entry declares that a value is unknown at build time and is read from a container environment variable at run time. Runtime values never appear in the image, which makes `runtimeEnv` the right choice for secrets.
+A `runtimeEnv` entry declares that a value is unknown at build time and is read from the invocation environment.
+
+Environment values supplied at invocation time never appear in bundles or image layers, which makes `runtimeEnv` the right choice for secrets.
 
 `runtimeEnv.name` is the environment variable to read. It must match `[A-Za-z_][A-Za-z0-9_]*` and must not start with the reserved prefix `AGENTFILE_`.
 
@@ -370,24 +382,30 @@ spec:
               name: SEARCH_MCP_AUTH
 ```
 
-Runtime variables are required at runtime: the container fails at start when a runtime variable isn't provided.  
+Runtime variables are required at invocation time: harness command preparation fails when a runtime variable is not provided.
 Empty is a value: a variable set to the empty string is used verbatim; only an unset variable is considered not provided.  
 
-`af run --env-auto` forwards declared runtime variables from the host environment. See [Run](#run).
+For Docker runs, `af run --env-auto` forwards declared runtime variables from the host environment.
+
+`runa` already inherits the complete parent environment. See [Run](#run).
 
 ### Workspace
 
-The workspace is the agent's working directory for input, output, and temporary files.  
-Inside the container, the path is always:
+The workspace is the agent's working directory for input, output, and temporary files. The default is empty and ephemeral.
+
+Inside an agent image, the path is always:
 
 ```text
 /agent/workspace
 ```
 
-The agent process runs with `/agent/workspace` as its working directory.  
-The default workspace is empty and ephemeral.
+The harness in an agent image runs with `/agent/workspace` as its working directory.
 
-`af run --workspace PATH` requests a host bind mount when the agent is run. `PATH` must be an existing directory. Relative paths are resolved from the current working directory. Use `--ws` as a shorter alias.
+`af run --workspace PATH` uses an existing directory.
+
+Docker bind-mounts it at `/agent/workspace`; `runa` uses the host path directly.
+
+`PATH` must be an existing directory. Relative paths are resolved from the current working directory. Use `--ws` as a shorter alias.
 
 When using `docker run` directly, you still need to mount the workspace yourself.
 
@@ -476,10 +494,10 @@ Non-2xx HTTP responses are invalid.
 ## Discovery
 
 Discovery populates agentfile assets based on project files automatically at build-time.
-It is applied after reading the agentfile and before the effective agentfile is used.
+It is applied after reading the agentfile and before validation and source resolution.
 
 Singular assets are discovered only when their `spec` field is absent. List assets append discovered entries after explicit entries.  
-Each discovered asset is represented as an `fs` source in the effective agentfile JSON.
+Each discovered asset is added to the loaded agentfile as an `fs` source.
 
 `prompt.md` discovered as `spec.prompt`.
 `system-prompt.md` is discovered as `spec.systemPrompt`.
@@ -508,45 +526,33 @@ Use the CLI to build, register, list, and run agents. Use `af --help` to show he
 
 ### Build
 
-Build turns the effective agentfile into a runnable container image. Use `af build` to build an agent image.
+Build targets describe the artifact to create. The default target is `image`.
 
 ```bash
-af build [--file agentfile.yaml] [--tag TAG]
+af build --target bundle --file agentfile.yaml --output reviewer.tar.gz
+af build --target image --file agentfile.yaml --base-image example/agent-base:latest --tag reviewer:latest
+af build --target image --bundle reviewer.tar.gz --base-image example/agent-base:latest --tag reviewer:latest
 ```
 
-Build steps:
+A bundle build loads the source agentfile, applies defaults and discovery, resolves every source once, compiles the bundle manifest and harness configuration template, stages materialized assets, and writes a reproducible `.tar.gz`. The bundle manifest contains normalized run-time values and direct bundle-relative asset paths rather than agentfile source declarations. See the normative [Agent bundle format](bundle.md). `--output` is valid only for bundle builds. Its default is `<metadata.name>-<metadata.version>.tar.gz`, with path-separator characters replaced by `-`.
 
-1. Load the effective agentfile.
-2. Resolve all sources.
-3. Select the base image.
-4. Serialize the effective agentfile to `/agent/agentfile/agentfile.effective.json`.
-5. Copy assets into the image.
-6. Write harness configuration according to the [Harness reference](./harness.md).
-7. Set the image entrypoint.
-8. Embed agent fields needed at runtime as image labels:
-  1. `build.agentfile.metadata`
-  2. `build.agentfile.runtimeEnv`
-  3. `build.agentfile.harness`
-9. Tag the image.
+The current bundle reader accepts archives up to 1 GiB and 100,000 entries. Each entry and the total extracted content are limited to 512 MiB.
 
-The image entrypoint runs the selected harness in one-shot mode by default.
-The image working directory is `/agent/workspace`.
+An image build from an agentfile creates a temporary bundle, then constructs the image from that bundle. An image build from `--bundle` does not read a source project, rediscover assets, or refetch sources. `--base-image` and `--tag` are valid only for image builds. `--base-image` defaults from the selected harness, and `--tag` defaults to `<agent.name>:<agent.version>` from the bundle manifest.
 
-Build does not require LLM credentials.  
-Build does not run the agent.  
-Build must not modify the project directory.
+`--file` and `--bundle` are mutually exclusive. `--file` defaults to `agentfile.yaml` when the input is a project. Builds do not require LLM credentials, do not run the harness, and do not modify the project.
 
-`--file` defaults to `agentfile.yaml` in the current directory. Relative paths are resolved from the current directory; absolute paths are used as-is.
+Images contain the unpacked bundle at `/agent/bundle`, the generated image entrypoint, and `/agent/workspace`. The entrypoint reads the bundle contents in place and writes its private harness profile under `/agent/profile`.
 
-The default image tag is:
-
-```text
-metadata.name:metadata.version
-```
+They record agent identity, harness, run-time environment-variable names, and bundle digest labels. See the [Agent image format](image.md).
 
 ### Run
 
-Run starts an agent container and prints the agent stdout. `af run` is an alias for `af agents run`.
+Run starts an agent from a source agentfile, agent bundle, or agent image.
+
+`af run` is an alias for `af agents run`.
+
+Source agentfiles use Docker by default. `--host` selects unsandboxed host execution through `runa`.
 
 The run command supports three execution modes:
 
@@ -559,38 +565,45 @@ The run command supports three execution modes:
 The three modes are mutually exclusive, therefore the flags `--tui`, `--acp`, and `--prompt` are mutually exclusive.
 
 ```bash
-af agents run [NAME | --file agentfile.yaml | --image REF] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--env-auto] [--debug]
+af agents run [NAME | --file agentfile.yaml | --bundle FILE | --image REF] [--host] [--tui | --acp | --prompt TEXT] [--model MODEL] [--workspace DIR] [--ws DIR] [--env KEY[=VALUE]] [--env-file FILE] [--env-auto] [--debug]
 ```
 
 Agent selection:
 
-1. If `--image REF` is set, run that agent image directly without registering it.
-2. Otherwise, if `--file` is set, run that agentfile.
-3. Otherwise, if `NAME` is set, run the registered agent named `NAME`.
-4. Otherwise, if the current directory contains `agentfile.yaml`, run it.
+1. `--image REF` runs an image with Docker.
+2. `--bundle FILE` runs a bundle with `runa`.
+3. `--file FILE` builds a temporary image, or a temporary bundle when `--host` is present.
+4. `NAME` runs a registered agentfile or image; `--host` is invalid for registered images.
+5. With no selection, `agentfile.yaml` in the current directory is used.
 
-`NAME`, `--file`, and `--image` are mutually exclusive.
+`NAME`, `--file`, `--bundle`, and `--image` are mutually exclusive. Bundle registration is not supported.
 
-`--image` requires an image built by `af build`. The image labels provide the runtime metadata used by the runner. The image is pulled if it is not present locally.
+For source agentfiles, the CLI normally builds a temporary image.
 
-Run steps:
+It selects or builds the image, bind-mounts the workspace when requested, and invokes Docker. Images are pulled if absent.
 
-1. If running an agentfile, build it into an image first.
-2. If running an agent image, pull the image if needed.
-3. Bind the workspace if requested.
-4. Setup environment variables.
-5. Start the container.
-6. Print the agent stdout, attach the terminal in TUI mode, or serve ACP over stdio.
-7. Exit with the container exit code.
+When `--host` selects a source agentfile, the CLI creates a temporary bundle and passes it to `runa`.
 
-`--workspace PATH` binds `PATH` to `/agent/workspace`. `PATH` must be an existing directory. Relative paths are resolved from the current working directory.  
+`runa` creates a private unpacked bundle, uses an empty temporary workspace unless one is selected, creates a private [harness profile](harness.md#terminology-and-scope), and locates the harness on `PATH`.
+
+It starts the harness as the current user, forwards streams and signals, preserves its exit code, and removes temporary files.
+
+`runa` supports one-shot and TUI modes; ACP is rejected. It never imports or modifies global harness configuration. See the [`runa` reference](runa.md).
+
+Every `runa` invocation warns that it runs without isolation or approval gates. Host mode is for trusted bundles and environments only.
+
+`--workspace PATH` uses an existing workspace.
+
+Docker binds it to `/agent/workspace`; `runa` uses it directly. Relative paths are resolved from the current working directory.
 `--ws PATH` is an alias for `--workspace PATH`.
 
 `--file` defaults to `agentfile.yaml` in the current directory. Relative paths are resolved from the current directory; absolute paths are used as-is.
 
-`--env KEY[=VALUE]` sets an environment variable in the container. if `VALUE` is omitted, the value is taken from the current environment.
+`--env KEY[=VALUE]` sets an environment variable for the invocation. If `VALUE` is omitted, the value is taken from the current environment.
 `--env-file FILE` loads environment variables from an `.env` file.
-`--env-auto` forwards every variable referenced by a `runtimeEnv` field when that variable is present in the host environment. Explicit `--env` values take precedence.
+`--env-auto` forwards declared runtime variables to a container when present in the host.
+
+`runa` inherits the parent environment already. Explicit `--env` values take precedence.
 
 `--debug` streams build progress and agent stderr to stderr (which aren't streamed by default). If a one-shot run exits with non-zero code, its captured stderr is printed automatically. TUI mode always attaches stderr and shows build progress. ACP mode always reserves stdout for protocol messages and sends diagnostics to stderr. Image pull progress is always printed to stderr.
 
@@ -611,12 +624,14 @@ af run code-review --tui --workspace .
 
 TUI mode starts without an initial user message: `spec.prompt` is ignored, and `--prompt` cannot be combined with `--tui`.
 
-For image-based selection, TUI mode requires the `build.agentfile.harness` label added by current Agentfile builds.
+For image-based selection, TUI mode requires the `build.agentfile.harness` label added by current Agentfile builds. Host TUI requires the harness executable on `PATH`.
 
 #### ACP Mode
 
 `--acp` flag allows integrating the agent with an [Agent Client Protocol](https://agentclientprotocol.com)-compatible client. This allows you to use your agents with your IDE, Terminal or agent management UI.  
 Configuration varies based on client - where client asks for a command to run, supply the `af run` command that runs your agents, and add the `--acp` flag.
+
+ACP is supported only through Docker.
 
 The ACP client supplies a workspace for each session. The request's absolute `cwd` is mounted at `/agent/workspace`. `--workspace` and `--ws` are not supported with `--acp`.
 
@@ -632,10 +647,12 @@ Client-provided MCP servers are rejected since MCP server definition and configu
 
 Run supports overriding certain agentfile fields:
 
-- `--prompt` replaces the image's default prompt in one-shot mode. It can also supply the prompt when the agentfile does not define one.
-- `--model` replaces the image's default model. The provider remains the one declared in the agentfile.
+- `--prompt` replaces the bundle or image default prompt in one-shot mode. It can also supply a missing prompt.
+- `--model` replaces the default model. The provider remains the one declared in the agentfile.
 
-These values are passed to the container at runtime. They do not modify the effective agentfile or the image. Other agentfile fields cannot be overridden.
+These values apply only to the harness invocation.
+
+They do not modify the agentfile, bundle, or image. Other agentfile fields cannot be overridden.
 
 When running an agent image directly with a container runtime, `AGENTFILE_PROMPT` and `AGENTFILE_MODEL` are the equivalent entrypoint-level overrides.
 
@@ -736,6 +753,18 @@ You cannot run an agent in ACP mode directly with docker run, since the agent im
 
 ## Security
 
-Agentfile agents run in containers, which provide their isolation boundary. Harness permission and approval gates are disabled so the agent can read, write, and execute freely inside its container without asking. Additional isolation can be added at deploy time using container runtime security features.
+Docker uses the container as its isolation boundary.
 
-Secrets should use `runtimeEnv` and be provided at run time. See [Runtime Variables](#runtime-variables).
+Harness permission and approval gates are disabled so the agent can read, write, and execute freely inside that boundary without asking. Additional isolation can be added at deploy time using container runtime security features.
+
+`runa` has no isolation boundary.
+
+It launches the harness as the current user with access to that user's files, credentials, processes, installed tools, and network resources, while retaining Agentfile's permission-bypass behavior.
+
+Host mode must be selected explicitly for source agentfiles and prints a warning on every invocation. Use it only for trusted bundles, prompts, skills, MCP registrations, and workspaces.
+
+Bundles are artifacts, not sandboxes. Safe extraction prevents archive path attacks, but bundle instructions and skill scripts may still cause arbitrary actions when executed.
+
+Secrets should use `runtimeEnv` and be provided at invocation time. They must not be stored in bundles or image layers.
+
+`runa` inherits the complete parent environment, including undeclared secrets. See [Runtime Variables](#runtime-variables), the [bundle format](bundle.md#sensitive-information), and the [`runa` security rules](runa.md#security).

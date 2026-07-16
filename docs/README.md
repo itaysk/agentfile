@@ -7,11 +7,15 @@
 
 ## Reference
 
-- [Reference manual](reference/reference.md) — Read the product manual and implementation specification.
-- [Harness reference](reference/harness.md) — Understand harness-specific runtime mappings.
-- [agentfile schema](reference/agentfile.schema.json) — Validate agentfile documents with JSON Schema.
-- [agentfile schema example](reference/agentfile.yaml) — See every available field and feature.
-- [CLI reference](reference/cli.sh) — Browse CLI commands and flags.
+- [Reference manual](reference/reference.md) — Product manual and implementation specification.
+- [Harness reference](reference/harness.md) — Harness-specific mappings.
+- [Agent bundle format](reference/bundle.md) — Portable artifact spec.
+- [Agent image format](reference/image.md) — Container image contract.
+- [Agent image entrypoint](reference/entrypoint.md) — Container-start behavior.
+- [`runa`](reference/runa.md) — Host bundle runner.
+- [agentfile schema](reference/agentfile.schema.json) — agentfile JSON Schema.
+- [agentfile schema example](reference/agentfile.yaml) — Full agentfile yaml reference.
+- [CLI reference](reference/cli.sh) — CLI commands and flags.
 
 ## Examples and snippets
 

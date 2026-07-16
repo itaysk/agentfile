@@ -2,11 +2,11 @@
 
 What is Agentfile?
 
-Agentfile helps you build custom agents as portable container images.
+Agentfile helps you build custom and portable agents.
 
-- No code, declarative agents - driven by Markdown and YAML and managed in git.  
-- Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
-- Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
+- No code, declarative agents - Driven by Markdown and YAML and managed in git.  
+- Bring your own harness - Claude, Codex, Pi, and more.  
+- Deploy anywhere - Locally, in cloud, Kubernetes, or CI/CD.
 
 What can you do with Agentfile?
 
@@ -42,13 +42,17 @@ spec:
         command: ["uv", "tool", "run", "mcp-server-time"]
 ```
 
-Build it, run it, deploy it:
+Build it, run it, ship it:
 
 ```sh
 # run an agentfile
 af run -f myagent.yaml
+# run it with a host-installed harness (unsandboxed)
+af run -f myagent.yaml --host --workspace .
+# build a portable bundle
+af build --target bundle -f myagent.yaml --output my-agent.tar.gz
 # build it to an image
-af build -f myagent.yaml --tag itaysk/my-agent:latest
+af build --target image --bundle my-agent.tar.gz --tag itaysk/my-agent:latest
 # it's a regular container image
 docker push itaysk/my-agent:latest
 # deploy it to Kuberntes or any container platform

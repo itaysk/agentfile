@@ -1,152 +1,90 @@
-# Harness Reference
+# Harness Adapter Reference
 
-The [reference manual](./reference.md) defines the agentfile schema and effective agentfile algorithm.
-This file defines how agentfile features map to each harness's configuration and runtime behavior.
+This document defines the normative mapping between a bundle manifest and each supported harness.
 
-A "harness adapter" is the implementation that performs the mapping and setup.
-Adapter work happens at build time, with access to the Agentfile project. The adapter produces a layout that is fully set up and ready to run.
+The [reference manual](reference.md) defines the source agentfile schema, defaults, and discovery rules.
 
-If a selected harness cannot represent an effective agentfile capability listed here, the build must fail with a clear unsupported-combination error.
+The [bundle format](bundle.md) defines bundle assets and relocatable templates.
 
-## Runtime Layout
+The [image format](image.md) defines agent image construction.
 
-The agent process runs with `/agent/workspace` as its working directory. The workspace is considered purely under the user's and agent's control and is meant for input/output. It does not contain agentfile setup files.
+## Terminology and scope
 
-The build stages agentfile assets under `/agent/agentfile`.  
-The staged files are implementation input for the harness and the image entrypoint.
+A **harness adapter** maps a bundle manifest and harness invocation to harness-specific bundle assets, profiles, and commands.
 
-| Asset | Staged location |
+At build time, the adapter validates supported feature combinations and produces harness configuration templates.
+
+At invocation time, the adapter receives a caller-selected private profile directory, renders harness configuration into it, copies skills into harness-specific profile directories where required, and prepares a harness command.
+
+A **harness invocation** supplies an execution mode, workspace, environment, and any explicit prompt or model override for one harness run.
+
+An **execution mode** defines how the harness interacts with its caller. The supported modes are one-shot, TUI, and ACP.
+
+An **unpacked bundle** is the directory containing the bundle contents used for an invocation.
+
+A **harness profile** is a caller-provided, private, per-invocation directory containing rendered harness configuration and copies of bundle assets installed for the selected harness. It is separate from the user's global harness configuration.
+
+A **harness command** contains the harness executable, arguments, environment, and working directory for one invocation. It is data, not a shell command string or a running process.
+
+A harness adapter does not define CLI behavior, construct an agent bundle or image, or launch a process.
+
+The examples below use these symbolic values:
+
+| Symbol | Meaning |
 | --- | --- |
-| Effective agentfile | `/agent/agentfile/agentfile.effective.json` |
-| Prompt | `/agent/agentfile/prompt.md` |
-| System Prompt | `/agent/agentfile/system-prompt.md` |
-| Skills | `/agent/agentfile/skills/<skill-name>/...` |
-| Harness config | `/agent/agentfile/<harness>/...` |
+| `<bundle>` | unpacked bundle directory |
+| `<profile>` | harness profile |
+| `<workspace>` | workspace from the harness invocation |
+| `<provider>` | selected model provider |
+| `<model>` | selected model |
+| `<prompt>` | selected one-shot prompt |
+| `<system-prompt>` | selected system-prompt contents |
+| `<system-prompt-asset>` | bundle-relative system-prompt asset path |
+| `<skill-name>` | skill directory name |
 
-The effective agentfile is the fully resolved, explicit and complete agentfile serialized as JSON. It is the machine-readable runtime specification for the image.
+Symbols enclosed in angle brackets are descriptive and are not literal paths or argument values.
 
-Harness config files are staged into the image at their `/agent/agentfile/<harness>/` paths with a placeholder token in place of each `runtimeEnv` reference. At container start, the generated entrypoint substitutes the tokens with values from the container environment, in place. A config file without runtime references is final as staged. Runtime values never appear in image layers, regardless of harness capabilities.
+## Build-time mappings
 
-The image entrypoint must:
+### Supported combinations
 
-1. Validate that every runtime variable is provided. Empty string is a value and considered provided.
-2. Substitute placeholder values in the staged harness config files, escaped for the config format (JSON/TOML).
-3. Apply `spec.envs` as default environment variables. `runtimeEnv` entries resolve from their source variable.
-4. Select the run mode from `AGENTFILE_RUN_MODE`, defaulting to `oneshot`.
-5. Identify and set up runtime overrides to agentfile fields:
-  1. `AGENTFILE_PROMPT` (one-shot mode only; default to `spec.prompt`)
-  2. `AGENTFILE_MODEL` (default to `spec.llm.model`)
-6. Set the harness home and config environment described below.
-7. Run from `/agent/workspace`.
-8. Exit before launching the harness when `AGENTFILE_RENDER_ONLY` is set and non-empty.
-9. Set up harness stdout and stderr streaming.
-10. Invoke the run-mode-specific harness command with the correct flags and variables.
-11. Exit with the harness process exit code.
-
-The entrypoint owns the `AGENTFILE_` environment variable namespace: it accepts `AGENTFILE_PROMPT` and `AGENTFILE_MODEL` as run overrides, reads `AGENTFILE_RUN_MODE` and `AGENTFILE_RENDER_ONLY`, publishes effective values through `AGENTFILE_PROVIDER`, `AGENTFILE_MODEL`, and `AGENTFILE_SYSTEM_PROMPT`, and may use further `AGENTFILE_`-prefixed variables internally. This is why agentfile entry names and `runtimeEnv` names must not start with `AGENTFILE_`.
-
-## Run Modes
-
-`AGENTFILE_RUN_MODE` accepts `oneshot`, `tui` and `acp` modes. Unset or empty defaults to `oneshot`. Unsupported values exit with status 64.
-
-In TUI and ACP modes, the entrypoint does not resolve, require, export, or pass `AGENTFILE_PROMPT`; it unsets an inherited value. Both modes start without an initial user message.
-
-ACP mode exposes the selected harness's native stream protocol on container stdin and stdout. ACP JSON-RPC translation remains in the host-side `af` process, not the image.  
-In ACP mode, `af run --acp` starts the host-side bridge and prepares the image without starting a container.  
-After protocol initialization, each `session/new` request creates a container.  
-`session/close` stops the agent container. Disconnecting the client stops all remaining containers.
-
-The entrypoint resolves each runtime variable once and substitutes that single resolution into every config token that references it.
-
-## Harness Homes
-
-Each harness gets an image-local generated home directory. The generated home is where Agentfile writes harness config and installs harness-local assets. It is not copied from the build host.
-
-| Harness | Generated home | Runtime environment |
-| --- | --- | --- |
-| Claude Code | `/agent/agentfile/claudecode/home` | `HOME=/agent/agentfile/claudecode/home` |
-| Codex | `/agent/agentfile/codex/home` | `HOME=/agent/agentfile/codex/home`, `CODEX_HOME=/agent/agentfile/codex/home/.codex` |
-| Pi | `/agent/agentfile/pi/home` | `PI_CODING_AGENT_DIR=/agent/agentfile/pi/home` |
-
-Generated homes may contain config, copied skills, and other Agentfile-owned runtime assets. They must not contain LLM credentials, host auth caches, or host user-level harness configuration.
-
-## Sessions
-
-Harness session files are written under the generated home in the container. Session state therefore lasts only for the container's lifetime and cannot be resumed by a later run or ACP session.
-
-## Provider Support
-
-`spec.llm` declares the provider expected by the user. The selected build-time adapter must either implement that provider exactly as listed here or reject the effective agentfile at build time.
+The bundle manifest's `harness` and `model.provider` must form a supported combination:
 
 | Provider | Claude Code | Codex | Pi |
 | --- | --- | --- | --- |
-| `anthropic` | Use `--model`; credentials from `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (requires non-[bare mode](#bare-mode)). | Unsupported. | Use `--provider anthropic --model`; credentials from `ANTHROPIC_API_KEY`. |
-| `openai` | Unsupported. | Use `--model`; derive `CODEX_API_KEY` from `OPENAI_API_KEY` when unset. | Use `--provider openai --model`; credentials from `OPENAI_API_KEY`. |
-| `openrouter` | Unsupported. | Unsupported. | Use `--provider openrouter --model`; credentials from `OPENROUTER_API_KEY`. |
+| `anthropic` | Supported | Unsupported | Supported |
+| `openai` | Unsupported | Supported | Supported |
+| `openrouter` | Unsupported | Unsupported | Supported |
 
-Unsupported providers may be added later by extending this file. Until then, they are invalid for the listed harness.
+Bundle construction and bundle readers reject unsupported combinations.
 
-## Permissions
+The following bundle-manifest combinations are also unsupported:
 
-Agentfile agents run in containers, and the harness is launched with permission and approval gating disabled by default.
+- `harness: pi` with `assets.configTemplate`;
+- `harness: claudecode` and `bare: true` with a non-empty `assets.skills`; and
+- `harness: claudecode` and `bare: true` with a `CLAUDE_CODE_OAUTH_TOKEN` target in `environment.defaults` or `environment.mappings`.
 
-| Harness | Mapping |
-| --- | --- |
-| Claude Code | Use `--dangerously-skip-permissions`, with environment variable `IS_SANDBOX=1` |
-| Codex | Use `--dangerously-bypass-approvals-and-sandbox` |
-| Pi | No action needed. |
+### Harness configuration templates
 
-## System Prompt
+Bundle construction writes these harness-specific bundle assets:
 
-`spec.systemPrompt` replaces the selected harness's default base prompt when the harness exposes a replacement mechanism. If `spec.systemPrompt` is absent, the harness default applies.
+| Harness | Template | Bundle-manifest field |
+| --- | --- | --- |
+| Claude Code | `harness/claudecode/mcp.json.tmpl` | `assets.configTemplate`, when the source agentfile declares MCP servers |
+| Codex | `harness/codex/config.toml.tmpl` | `assets.configTemplate`, always |
+| Pi | None | omitted |
 
-| Harness | Mapping |
-| --- | --- |
-| Claude Code | Use `--system-prompt-file /agent/agentfile/system-prompt.md`. |
-| Codex | Set `model_instructions_file = "/agent/agentfile/system-prompt.md"` in generated `config.toml`. |
-| Pi | Use `--system-prompt "$AGENTFILE_SYSTEM_PROMPT"` with the resolved contents. |
+Literal configuration values are written directly into a template.
 
-Agentfile does not currently model append-system-prompt behavior. Harness append flags such as Claude Code `--append-system-prompt-file`, Codex `developer_instructions`, or Pi `--append-system-prompt` are outside the reference schema.
+A `runtimeEnv` reference is written as `__AGENTFILE_REF_<source-name>__`, where `<source-name>` is its declared source environment-variable name. The sorted set of these names is recorded in `assets.configEnv`.
 
-## Prompt
+Bundle and workspace paths are written as `__AGENTFILE_BUNDLE_ROOT__` and `__AGENTFILE_WORKSPACE__`.
 
-In one-shot mode, all harnesses receive the resolved prompt text as the user task. TUI mode ignores `spec.prompt`.
+Harness profile preparation replaces these reserved placeholders only in a private rendered copy.
 
-| Harness | One-shot command |
-| --- | --- |
-| Claude Code | `claude --print <prompt-text>` |
-| Codex | `codex exec <prompt-text>` |
-| Pi | `pi -p <prompt-text>` |
+#### Claude Code template
 
-The implementation must pass prompt text as an argument or stdin without shell interpolation. Prompt text is not a path and must not be converted to an `@file` reference.
-
-## Skills
-
-Skill directories from the agentfile are copied unchanged, including all files below the resolved skill directory.
-
-| Harness | Mapping |
-| --- | --- |
-| Claude Code | Install each skill at `/agent/agentfile/claudecode/home/.claude/skills/<skill-name>/`. |
-| Codex | Install each skill at `/agent/agentfile/codex/home/.agents/skills/<skill-name>/`. |
-| Pi | Use `--skill /agent/agentfile/skills/<skill-name>` once per skill. |
-
-The `<skill-name>` directory is the `name` field in `SKILL.md` front matter. The name must be a single path segment.
-
-## MCP Servers
-
-`spec.mcps` is supported by Claude Code and Codex. It is unsupported by the default Pi adapter because Pi does not include built-in MCP support.
-
-If `spec.mcps` is non-empty and `spec.harness.pi` is selected, the build must fail unless a future Agentfile version defines a Pi extension adapter.
-
-### Claude Code MCP
-
-Write `/agent/agentfile/claudecode/mcp.json` and invoke Claude Code with:
-
-```text
---mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config
-```
-
-The generated JSON shape is:
+The Claude Code template has this JSON shape:
 
 ```json
 {
@@ -156,30 +94,31 @@ The generated JSON shape is:
       "command": "uv",
       "args": ["tool", "run", "mcp-server-time"],
       "env": {
-        "EXAMPLE": "value"
+        "TOKEN": "__AGENTFILE_REF_MCP_TOKEN__"
       }
     },
     "search": {
       "type": "http",
       "url": "https://example.com/mcp",
       "headers": {
-        "Authorization": "Bearer token"
+        "Authorization": "__AGENTFILE_REF_SEARCH_MCP_AUTH__"
       }
     }
   }
 }
 ```
 
-For a `stdio.command` array, the first item becomes `command` and remaining items become `args`.
+For a `stdio.command` array, the first item becomes `command` and the remaining items become `args`.
 
-### Codex MCP
+#### Codex template
 
-Write MCP servers to `/agent/agentfile/codex/home/.codex/config.toml` using `mcp_servers` tables.
+The Codex template uses `config.toml`:
 
 ```toml
 project_doc_max_bytes = 0
+model_instructions_file = "__AGENTFILE_BUNDLE_ROOT__/system-prompt.md"
 
-[projects."/agent/workspace"]
+[projects."__AGENTFILE_WORKSPACE__"]
 trust_level = "trusted"
 
 [mcp_servers.time]
@@ -187,196 +126,246 @@ command = "uv"
 args = ["tool", "run", "mcp-server-time"]
 
 [mcp_servers.time.env]
-EXAMPLE = "value"
+TOKEN = "__AGENTFILE_REF_MCP_TOKEN__"
 
 [mcp_servers.search]
 url = "https://example.com/mcp"
-http_headers = { Authorization = "Bearer token" }
+http_headers = { Authorization = "__AGENTFILE_REF_SEARCH_MCP_AUTH__" }
 ```
 
-For a `stdio.command` array, the first item becomes `command` and remaining items become `args`.
+`model_instructions_file` is omitted when `assets.systemPrompt` is absent.
 
-## Harness Commands
+MCP tables are omitted when the source agentfile does not declare MCP servers.
 
-The following commands define the runtime launch commands emitted by the default harness adapters. Implementations may construct equivalent `execve` argument arrays, but must preserve these semantics.
+For a `stdio.command` array, the first item becomes `command` and the remaining items become `args`.
 
-### Claude Code
+## Invocation-time mappings
+
+The adapter renders configuration and installs skills into the private harness profile, then returns a harness command.
+
+The adapter does not start the harness process.
+
+### Harness command preparation
+
+Harness command preparation receives an unpacked bundle, a private harness profile directory, and a harness invocation.
+
+During preparation, the adapter:
+
+1. validates that every required environment variable is present;
+2. uses the prompt and model in the bundle manifest unless the invocation explicitly overrides them;
+3. prepares the supplied harness profile;
+4. replaces bundle and workspace path placeholders in harness configuration templates;
+5. substitutes referenced environment values into the rendered harness configuration;
+6. applies declared environment defaults and mappings; and
+7. produces the harness command.
+
+The invocation supplies the initial environment.
+
+A value in `environment.defaults` is set only when its target variable is absent.
+
+A value in `environment.mappings` names a source variable. Its value is copied into the map key's target variable only when the target is absent.
+
+Every source named by `environment.mappings` or `assets.configEnv` is required. A mapping source remains required even when its target variable already exists. An empty source value is valid.
+
+One-shot mode requires an effective prompt.
+
+TUI and ACP modes remove the prompt from the harness environment and start without an initial user message.
+
+An environment value substituted into a JSON or TOML harness template must not contain a carriage return or newline.
+
+### Harness profile
+
+| Harness | Environment | Rendered configuration | Skills |
+| --- | --- | --- | --- |
+| Claude Code | `HOME=<profile>/claudecode/home` | `<profile>/claudecode/mcp.json` when `assets.configTemplate` is present | `<profile>/claudecode/home/.claude/skills/<skill-name>/` |
+| Codex | `HOME=<profile>/codex/home`; `CODEX_HOME=<profile>/codex/home/.codex` | `<profile>/codex/home/.codex/config.toml` | `<profile>/codex/home/.agents/skills/<skill-name>/` |
+| Pi | `PI_CODING_AGENT_DIR=<profile>/pi/home` | None | Referenced from `<bundle>/skills/<skill-name>` |
+
+Claude Code and Codex skill directories are copied unchanged from their bundle assets.
+
+Pi receives one `--skill` argument for each skill instead of copying skills into its profile.
+
+### Provider and credentials
+
+| Harness | Mapping |
+| --- | --- |
+| Claude Code | Pass `<model>` with `--model`. Anthropic credentials remain in `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`. Subscription authentication is incompatible with bare mode. |
+| Codex | Pass `<model>` with `--model`. If `CODEX_ACCESS_TOKEN` is set, remove `CODEX_API_KEY` from the harness environment. Otherwise, when `CODEX_API_KEY` is unset and `OPENAI_API_KEY` is set, copy its value to `CODEX_API_KEY`. |
+| Pi | Pass `<provider>` with `--provider` and `<model>` with `--model`. Provider credentials remain in `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`. |
+
+For image TUI and ACP invocation, the Codex adapter initializes the private profile with `codex login --with-access-token` or `codex login --with-api-key` when the corresponding credential is available.
+
+Credential values must not be persisted outside the private harness profile.
+
+### Permission flags
+
+| Harness | Mapping |
+| --- | --- |
+| Claude Code | Add `--dangerously-skip-permissions`. The [image entrypoint](entrypoint.md) sets `IS_SANDBOX=1`; `runa` does not. |
+| Codex | Add `--dangerously-bypass-approvals-and-sandbox`. |
+| Pi | No permission flag. |
+
+### System prompt
+
+| Harness | Mapping |
+| --- | --- |
+| Claude Code | Add `--system-prompt-file <bundle>/<system-prompt-asset>`. |
+| Codex | Set `model_instructions_file` in rendered `config.toml` to `<bundle>/<system-prompt-asset>`. |
+| Pi | Add `--system-prompt <system-prompt>`. |
+
+The mapping is omitted when `assets.systemPrompt` is absent.
+
+Append-system-prompt behavior is not part of the agentfile schema.
+
+### MCP servers
+
+When `assets.configTemplate` is present, Claude Code receives:
+
+```text
+--mcp-config <profile>/claudecode/mcp.json --strict-mcp-config
+```
+
+Codex reads MCP configuration from `<profile>/codex/home/.codex/config.toml`.
+
+Codex always renders `assets.configTemplate` as its private `config.toml`.
+
+Pi does not support harness configuration templates.
+
+### Harness commands
+
+Each command below represents an executable and argument array, not a shell command string.
+
+Harness command preparation supplies each symbolic value as one argument without shell interpolation.
+
+Optional bracketed arguments are included only when the corresponding feature is present.
+
+#### Claude Code
 
 Required executable: `claude`.
 
-Runtime environment:
+The harness environment contains `IS_DEMO=1`.
+
+One-shot:
 
 ```text
-HOME=/agent/agentfile/claudecode/home
-IS_SANDBOX=1
-IS_DEMO=1
+claude --print
+  --model <model>
+  --dangerously-skip-permissions
+  [--bare]
+  [--system-prompt-file <bundle>/<system-prompt-asset>]
+  [--mcp-config <profile>/claudecode/mcp.json --strict-mcp-config]
+  <prompt>
 ```
 
-One-shot command:
+TUI:
 
-```bash
-claude \
-  --print \
-  --model "$AGENTFILE_MODEL" \
-  --dangerously-skip-permissions \
-  [--bare] \
-  [--system-prompt-file /agent/agentfile/system-prompt.md] \
-  [--mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config] \
-  "$AGENTFILE_PROMPT"
+```text
+claude
+  --model <model>
+  --dangerously-skip-permissions
+  [--bare]
+  [--system-prompt-file <bundle>/<system-prompt-asset>]
+  [--mcp-config <profile>/claudecode/mcp.json --strict-mcp-config]
 ```
 
-TUI command:
+ACP:
 
-```bash
-claude \
-  --model "$AGENTFILE_MODEL" \
-  --dangerously-skip-permissions \
-  [--bare] \
-  [--system-prompt-file /agent/agentfile/system-prompt.md] \
-  [--mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config]
-```
-
-The TUI command deliberately omits `--print` and a positional prompt.
-`IS_DEMO=1` is set which skips Claude Code's onboarding and login wizard.
-
-ACP stream command:
-
-```bash
-claude \
-  --output-format stream-json \
-  --verbose \
-  --model "$AGENTFILE_MODEL" \
-  --dangerously-skip-permissions \
-  [--bare] \
-  [--system-prompt-file /agent/agentfile/system-prompt.md] \
-  [--mcp-config /agent/agentfile/claudecode/mcp.json --strict-mcp-config] \
-  --input-format stream-json \
+```text
+claude
+  --output-format stream-json
+  --verbose
+  --model <model>
+  --dangerously-skip-permissions
+  [--bare]
+  [--system-prompt-file <bundle>/<system-prompt-asset>]
+  [--mcp-config <profile>/claudecode/mcp.json --strict-mcp-config]
+  --input-format stream-json
   --include-partial-messages
 ```
 
-Flags passed explicitly still apply, and all of the necessary features can be configured with explicit flags except skills.
+Top-level `bare: true` adds `--bare`.
 
-#### Bare mode
+Bare mode disables Claude Code auto-discovery of hooks, skills, plugins, MCP servers, memory, and `CLAUDE.md`. It also prevents use of `CLAUDE_CODE_OAUTH_TOKEN`.
 
-Bare mode (claude's `--bare` flag) minimizes claude's footprint and startup time by disabling auto-discovery for hooks, skills, plugins, MCP servers, memory, and `CLAUDE.md`. It also automatically sets `CLAUDE_CODE_SIMPLE=1` which simplifies the system prompt.
-
-You can control bare mode with `spec.harness.claudecode.bare` which is a boolean flag.
-
-Bare mode is off by default and used only when `bare: true` is set.
-
-Bare mode does not load skills (see below). `bare: true` with skills is rejected (validation error).
-
-Bare mode does not read `CLAUDE_CODE_OAUTH_TOKEN`. Do not set `bare: true` when the agent authenticates with a Claude subscription token. `bare: true` with a `spec.envs` entry named `CLAUDE_CODE_OAUTH_TOKEN` is rejected (validation error); a token supplied only at run time cannot be validated.
-
-##### Bare mode and Skills
-
-Verified empirically against Claude Code 2.1.204 (by capturing the API request bodies claude sends under each flag combination):
-
-- In bare mode, skill discovery ignores `~/.claude/skills` entirely — skills staged in the generated home are invisible (`/skill-name` returns "Unknown command").
-- `--add-dir <dir>` does make bare mode discover skills, but only from `<dir>/.claude/skills` (so `--add-dir /agent/agentfile/claudecode/home` would re-expose the staged skills; pointing `--add-dir` at a skills directory itself does nothing).
-- Discovered or not, bare mode never advertises skills to the model: the request's tool list is only `Bash`, `Edit`, `Read` — no `Skill` tool — and skill names/descriptions appear nowhere in the request.
-
-Rejected feature request: https://github.com/anthropics/claude-code/issues/37207
-
-### Codex
+#### Codex
 
 Required executable: `codex`.
 
-Runtime environment:
+One-shot:
 
 ```text
-HOME=/agent/agentfile/codex/home
-CODEX_HOME=/agent/agentfile/codex/home/.codex
+codex exec
+  --skip-git-repo-check
+  --dangerously-bypass-approvals-and-sandbox
+  --model <model>
+  <prompt>
 ```
 
-If `CODEX_ACCESS_TOKEN` is unset, `OPENAI_API_KEY` is set, and `CODEX_API_KEY` is unset, the entrypoint must set `CODEX_API_KEY="$OPENAI_API_KEY"` for the Codex process. Do not persist these variables.
-If `CODEX_ACCESS_TOKEN` is set, it takes precedence over `CODEX_API_KEY` and `OPENAI_API_KEY`.
-Before launching the TUI, the entrypoint passes the selected credential to `codex login --with-access-token` or `codex login --with-api-key`. This skips first-run authentication while keeping the generated auth file inside the ephemeral container.
+TUI:
 
-One-shot command:
-
-```bash
-codex exec \
-  --skip-git-repo-check \
-  --dangerously-bypass-approvals-and-sandbox \
-  --model "$AGENTFILE_MODEL" \
-  "$AGENTFILE_PROMPT"
+```text
+codex
+  --dangerously-bypass-approvals-and-sandbox
+  --model <model>
 ```
 
-TUI command:
+ACP:
 
-```bash
-codex \
-  --dangerously-bypass-approvals-and-sandbox \
-  --model "$AGENTFILE_MODEL"
-```
-
-The TUI command omits the `exec` subcommand, `--skip-git-repo-check`, and a positional prompt.
-
-ACP stream command:
-
-```bash
-codex \
-  --dangerously-bypass-approvals-and-sandbox \
-  --model "$AGENTFILE_MODEL" \
+```text
+codex
+  --dangerously-bypass-approvals-and-sandbox
+  --model <model>
   app-server
 ```
 
-Codex reads generated system prompt, MCP, and other adapter config from `$CODEX_HOME/config.toml`. The generated config sets `project_doc_max_bytes = 0` so workspace `AGENTS.md` files do not change the packaged agent behavior, and marks `/agent/workspace` as trusted so the TUI does not prompt before opening it.
+The generated `config.toml` sets `project_doc_max_bytes = 0` so workspace `AGENTS.md` files do not change the packaged agent behavior.
 
-### Pi
+It marks `<workspace>` as trusted so Codex does not request trust confirmation.
+
+#### Pi
 
 Required executable: `pi`.
 
-Runtime environment:
+One-shot:
 
 ```text
-PI_CODING_AGENT_DIR=/agent/agentfile/pi/home
+pi -p
+  --provider <provider>
+  --model <model>
+  --no-context-files
+  [--system-prompt <system-prompt>]
+  [--skill <bundle>/skills/<skill-name> ...]
+  <prompt>
 ```
 
-One-shot command:
+TUI:
 
-```bash
-pi \
-  -p \
-  --provider "$AGENTFILE_PROVIDER" \
-  --model "$AGENTFILE_MODEL" \
-  --no-context-files \
-  [--system-prompt "$AGENTFILE_SYSTEM_PROMPT"] \
-  [--skill /agent/agentfile/skills/<skill-name> ...] \
-  "$AGENTFILE_PROMPT"
+```text
+pi
+  --provider <provider>
+  --model <model>
+  --no-context-files
+  [--system-prompt <system-prompt>]
+  [--skill <bundle>/skills/<skill-name> ...]
 ```
 
-TUI command:
+ACP:
 
-```bash
-pi \
-  --provider "$AGENTFILE_PROVIDER" \
-  --model "$AGENTFILE_MODEL" \
-  --no-context-files \
-  [--system-prompt "$AGENTFILE_SYSTEM_PROMPT"] \
-  [--skill /agent/agentfile/skills/<skill-name> ...]
+```text
+pi
+  --mode rpc
+  --provider <provider>
+  --model <model>
+  --no-context-files
+  [--system-prompt <system-prompt>]
+  [--skill <bundle>/skills/<skill-name> ...]
 ```
 
-The TUI command omits `-p` and a positional prompt.
+`--no-context-files` prevents workspace `AGENTS.md` and `CLAUDE.md` files from changing the packaged agent behavior.
 
-ACP stream command:
+## Upstream references
 
-```bash
-pi \
-  --mode rpc \
-  --provider "$AGENTFILE_PROVIDER" \
-  --model "$AGENTFILE_MODEL" \
-  --no-context-files \
-  [--system-prompt "$AGENTFILE_SYSTEM_PROMPT"] \
-  [--skill /agent/agentfile/skills/<skill-name> ...]
-```
-
-`--no-context-files` prevents workspace `AGENTS.md` and `CLAUDE.md` files from changing the packaged agent behavior. Skills declared by the agentfile are still loaded through explicit `--skill` flags.
-
-## Upstream References
-
-These upstream harnesses change frequently. When their documented flags or config formats change, update this file and the corresponding harness mapping tests.
+These upstream harnesses change frequently. When their documented flags or configuration formats change, update this file and the corresponding harness mapping tests.
 
 - Claude Code CLI: <https://code.claude.com/docs/en/cli-reference>
 - Claude Code settings: <https://code.claude.com/docs/en/settings>

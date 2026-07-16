@@ -116,7 +116,7 @@ func TestReadLimitedRejectsOversize(t *testing.T) {
 
 func TestResolveGitUsesShallowCloneForDefaultBranchAndRef(t *testing.T) {
 	logPath := installFakeGit(t)
-	resolver, err := NewResolver(t.TempDir())
+	resolver, err := NewResolver(&Project{ProjectDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestResolveGitUsesShallowCloneForDefaultBranchAndRef(t *testing.T) {
 
 func TestResolveGitUsesShallowFetchForCommit(t *testing.T) {
 	logPath := installFakeGit(t)
-	resolver, err := NewResolver(t.TempDir())
+	resolver, err := NewResolver(&Project{ProjectDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestResolveGitUsesShallowFetchForCommit(t *testing.T) {
 func TestResolveGitFallsBackToFullCloneWhenCommitFetchFails(t *testing.T) {
 	logPath := installFakeGit(t)
 	t.Setenv("FAIL_GIT_FETCH", "1")
-	resolver, err := NewResolver(t.TempDir())
+	resolver, err := NewResolver(&Project{ProjectDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

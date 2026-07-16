@@ -1,10 +1,10 @@
 # Agentfile Introduction
 
-Agentfile helps you build custom agents as portable container images.
+Agentfile helps you build custom and portable agents.
 
-- No code, declarative agents - driven by Markdown and YAML and managed in git.  
-- Leverage agentic harness tools you already know and trust - Claude, Codex, Pi, and more.  
-- Standard container images that run anywhere - locally, in cloud, Kubernetes, or CI/CD.
+- No code, declarative agents - Driven by Markdown and YAML and managed in git.  
+- Bring your own harness - Claude, Codex, Pi, and more.  
+- Deploy anywhere - Locally, in cloud, Kubernetes, or CI/CD.
 
 This is a tutorial that walks you through basic concepts of Agentfile. For the full reference manual see [here](./reference/reference.md).  
 If you want to follow along, make sure you [install Agentfile](./install.md) first.
@@ -35,10 +35,16 @@ spec:
 
 We've created an agent! Notice that we've given it a name, selected its model and harness, and gave it its task.
 
-We can build this agent and get a runnable container image:
+We can build this agent as a portable bundle without Docker:
 
 ```bash
-af build -f agentfile.yaml
+af build --target bundle -f agentfile.yaml --output hello-world.tar.gz
+```
+
+The bundle contains its manifest and materialized assets, not Claude Code itself. We can also build the default runnable container image:
+
+```bash
+af build --target image -f agentfile.yaml
 docker images | grep 'hello-world'
 ```
 
@@ -163,7 +169,7 @@ While Markdown assets define the core of the agent's behavior, the agent might n
 
 ## Tools
 
-When you build an agent, the agentfile's `harness` field selects the default base image for the resulting agent image. For example, if you chose `harness: claudecode`, the agent image uses `itaysk/claudecode:latest` as its base image. The default image names are listed in the [Harness reference](./reference/reference.md#harness).
+When you build an agent image, its bundle's `harness` selects the default base image. For example, `harness: claudecode` uses `itaysk/claudecode:latest`. The default image names are listed in the [Harness reference](./reference/reference.md#harness).
 
 You can extend the default base image to include anything else your agent might need. Create a custom image:
 
@@ -175,7 +181,7 @@ ADD --unpack https://github.com/Code-Hex/Neo-cowsay/releases/download/v2.0.4/cow
 
 Notice we started "from" the default Claude Code base image, meaning we're extending it. We've installed a custom binary which our agent can now use.
 
-Build and tag this base image as `my-claudecode-base:latest`, then use the `image` field:
+Build and tag this base image as `cc-cowsay:latest`, then select it when building the agent image:
 
 ```yaml source=/docs/examples/hello-world-image/agentfile1.yaml
 apiVersion: agentfile.build/v1
@@ -185,13 +191,16 @@ metadata:
 spec:
   harness:
     claudecode: {}
-    image: cc-cowsay:latest
   llm:
     anthropic:
       model: claude-haiku-4-5
   prompt:
     text: |
       use the `cowsay` command to say hi!
+```
+
+```bash
+af build --target image --file agentfile1.yaml --base-image cc-cowsay:latest
 ```
 
 CLI tools are straightforward for agents to use, but MCP servers require additional setup to register with the agent harness.  
@@ -212,7 +221,6 @@ metadata:
 spec:
   harness:
     claudecode: {}
-    image: cc-time:latest
   llm:
     anthropic:
       model: claude-haiku-4-5
@@ -225,14 +233,20 @@ spec:
         command: ["uv", "tool", "run", "mcp-server-time"]
 ```
 
+```bash
+af build --target image --file agentfile2.yaml --base-image cc-time:latest
+```
+
 Notice the Dockerfile installed the MCP server into the agent image, and the agentfile registered it with the harness (Claude Code in this case).
 
 ---
 
 ## Workspace
 
-The agent's "workspace" is the special directory `/agent/workspace` inside the agent container. The agent is configured to use it for work-in-progress, state, and artifacts storage.  
-When running an agent, you can bind-mount the workspace to an existing directory. Do this if your agent needs to work in existing directory (input), or if you will want to access the agent's artifacts once it's done (output).
+The agent's "workspace" is its working directory for work-in-progress, state, and artifacts.
+
+An agent image uses `/agent/workspace`; `runa` uses the selected host path directly.
+Select an existing directory when the agent needs input from it or when you want to retain its output.
 
 ```yaml source=/docs/examples/hello-world-workspace/agentfile1.yaml
 apiVersion: agentfile.build/v1
@@ -277,15 +291,38 @@ af agents register -f agentfile.yaml # register an agent in the system
 af run hello-world # run registered agent by name
 ```
 
-You can override some agentfile fields at runtime. This lets you reuse agent as templates:
+For a fast development loop, run the bundle with a harness already installed on your host:
+
+```bash
+export ANTHROPIC_API_KEY='ant-...'
+af run --file agentfile.yaml --host --workspace .
+af run --bundle hello-world.tar.gz --workspace .
+```
+
+`runa` is deliberately unsandboxed.
+
+It launches the harness as your user with permission gates disabled, so use it only for trusted agentfiles, bundles, and workspaces.
+
+Agentfile creates a temporary harness profile and does not merge your global harness configuration.
+
+The harness and any declared MCP commands or tools must already be installed on the host. Every `runa` invocation prints a warning.
+
+Docker remains the default for source agentfiles and is the right choice when you need an isolation boundary or packaged operating-system tools.
+
+`runa` does not support ACP sessions; use an agent image for `--acp`.
+
+You can override some agentfile fields for one invocation. This lets you reuse agents as templates:
 
 ```bash
 af run hello-world --prompt "say something else"
 af run hello-world --model "claude-sonnet-4-5"
 ```
 
-The `run` command can also facilitate runtime setup.  
-For example, the `--workspace` flag lets you set a host directory to bind-mount to the workspace instead of writing the Docker mount manually. Use `--ws` as a shorter alias.
+The `run` command can also facilitate invocation setup.
+
+For example, the `--workspace` flag selects a host directory.
+
+Docker bind-mounts it; `runa` uses it directly. Use `--ws` as a shorter alias.
 
 ```bash
 af run hello-world --workspace /tmp/greetings

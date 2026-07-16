@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/itaysk/agentfile/internal/config"
-	"github.com/itaysk/agentfile/internal/runner"
+	"github.com/itaysk/agentfile/internal/harness"
+	"github.com/itaysk/agentfile/internal/registry"
 )
 
 func TestRunHelpExitsZero(t *testing.T) {
@@ -87,6 +87,62 @@ func TestParseBuildFlagsSupportsShortFileEquals(t *testing.T) {
 	}
 }
 
+func TestParseBuildFlagsSupportsBundleAndImageTargets(t *testing.T) {
+	options := buildFlags{}
+	if err := parseBuildFlags([]string{"--target", "bundle", "-f", "agentfile.yaml", "-o", "agent.tar.gz"}, &options); err != nil {
+		t.Fatal(err)
+	}
+	if options.target != "bundle" || options.output != "agent.tar.gz" || !options.fileSet {
+		t.Fatalf("options = %#v", options)
+	}
+	for _, args := range [][]string{
+		{"--target", "bundle", "--tag", "bad"},
+		{"--target", "bundle", "--base-image", "bad"},
+		{"--target", "image", "--output", "bad"},
+		{"--file", "a", "--bundle", "b"},
+	} {
+		if err := parseBuildFlags(args, &buildFlags{}); err == nil {
+			t.Fatalf("parseBuildFlags(%q) succeeded", args)
+		}
+	}
+	options = buildFlags{}
+	if err := parseBuildFlags([]string{"--target", "image", "--base-image=example/base:1"}, &options); err != nil {
+		t.Fatal(err)
+	}
+	if options.baseImage != "example/base:1" {
+		t.Fatalf("baseImage = %q, want example/base:1", options.baseImage)
+	}
+}
+
+func TestBuildBundleDoesNotRequireDocker(t *testing.T) {
+	dir := t.TempDir()
+	agentfilePath := filepath.Join(dir, "agentfile.yaml")
+	if err := os.WriteFile(agentfilePath, []byte(`apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: cli-bundle
+spec:
+  harness:
+    codex: {}
+  llm:
+    openai:
+      model: gpt-5
+  prompt:
+    text: hello
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "cli.tar.gz")
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"build", "--target", "bundle", "--file", agentfilePath, "--output", output}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run code = %d, stderr = %q", code, stderr.String())
+	}
+	if _, err := os.Stat(output); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestParseRunFlagsSupportsPromptOverride(t *testing.T) {
 	options := runFlags{env: map[string]string{}}
 	if err := parseRunFlags([]string{"cc", "--prompt", "say hi"}, &options); err != nil {
@@ -100,12 +156,62 @@ func TestParseRunFlagsSupportsPromptOverride(t *testing.T) {
 	}
 }
 
+func TestParseRunFlagsSupportsHostAndBundle(t *testing.T) {
+	options := runFlags{env: map[string]string{}}
+	if err := parseRunFlags([]string{"--bundle", "agent.tar.gz"}, &options); err != nil {
+		t.Fatal(err)
+	}
+	if options.bundle != "agent.tar.gz" {
+		t.Fatalf("options = %#v", options)
+	}
+	for _, args := range [][]string{
+		{"--image", "agent:1", "--host"},
+		{"--file", "agentfile.yaml", "--host", "--acp"},
+		{"--bundle", "agent.tar.gz", "--acp"},
+	} {
+		if err := parseRunFlags(args, &runFlags{env: map[string]string{}}); err == nil {
+			t.Fatalf("parseRunFlags(%q) succeeded", args)
+		}
+	}
+}
+
+func TestRunBuildsBundleBeforeHostExecution(t *testing.T) {
+	projectDir := t.TempDir()
+	agentfilePath := filepath.Join(projectDir, "agentfile.yaml")
+	writeCLITestFile(t, agentfilePath, `apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: host-test
+spec:
+  harness:
+    codex: {}
+  llm:
+    openai:
+      model: gpt-5-mini
+  prompt:
+    text: say hi
+`)
+	binDir := t.TempDir()
+	harness := filepath.Join(binDir, "codex")
+	writeCLITestFile(t, harness, "#!/bin/sh\necho cli-host\n")
+	if err := os.Chmod(harness, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"run", "--file", agentfilePath, "--host"}, &stdout, &stderr)
+	if code != 0 || stdout.String() != "cli-host\n" {
+		t.Fatalf("Run = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestParseRunFlagsSupportsTUIWithoutPrompt(t *testing.T) {
 	options := runFlags{env: map[string]string{}}
 	if err := parseRunFlags([]string{"cc", "--tui"}, &options); err != nil {
 		t.Fatalf("parseRunFlags returned error: %v", err)
 	}
-	if options.mode != runner.RunModeTUI {
+	if options.mode != harness.ModeTUI {
 		t.Fatalf("mode = %q, want tui", options.mode)
 	}
 	if err := parseRunFlags([]string{"--tui", "--prompt", "say hi"}, &runFlags{env: map[string]string{}}); err == nil || !strings.Contains(err.Error(), "--prompt cannot be used with --tui") {
@@ -118,7 +224,7 @@ func TestParseRunFlagsSupportsACP(t *testing.T) {
 	if err := parseRunFlags([]string{"cc", "--acp"}, &options); err != nil {
 		t.Fatalf("parseRunFlags returned error: %v", err)
 	}
-	if options.mode != runner.RunModeACP {
+	if options.mode != harness.ModeACP {
 		t.Fatalf("mode = %q, want acp", options.mode)
 	}
 	for _, args := range [][]string{
@@ -236,7 +342,7 @@ spec:
 	if !strings.Contains(registerOut.String(), "Registered alias") {
 		t.Fatalf("register stdout = %q, want alias", registerOut.String())
 	}
-	registryPath, err := config.RegistryPath()
+	registryPath, err := registry.Path()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,14 +365,14 @@ spec:
     openai:
       model: gpt-5-mini
 `)
-	project, tag, _, _, err := loadRunSelection(runFlags{name: "alias"}, io.Discard)
+	selection, err := selectRunInput(runFlags{name: "alias"}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tag != "" {
-		t.Fatalf("registered run tag = %q, want build default", tag)
+	if selection.ImageRef != "" {
+		t.Fatalf("registered run image = %q, want project selection", selection.ImageRef)
 	}
-	if got := project.DefaultImageTag(); got != "hello:2" {
+	if got := selection.Project.DefaultImageTag(); got != "hello:2" {
 		t.Fatalf("registered run image tag = %q, want hello:2", got)
 	}
 
@@ -298,7 +404,7 @@ func TestRegisterImageListAndRunValidation(t *testing.T) {
 	if !strings.Contains(registerOut.String(), "Registered image-agent") {
 		t.Fatalf("register stdout = %q, want image label name", registerOut.String())
 	}
-	registryPath, err := config.RegistryPath()
+	registryPath, err := registry.Path()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,12 +432,12 @@ func TestRegisterImageListAndRunValidation(t *testing.T) {
 		t.Fatalf("agents list called docker:\n%s", log)
 	}
 
-	project, image, runtimeEnvNames, harness, err := loadRunSelection(runFlags{name: "image-agent"}, io.Discard)
+	selection, err := selectRunInput(runFlags{name: "image-agent"}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project != nil || image != "acme/triage:1.2" || strings.Join(runtimeEnvNames, ",") != "GITHUB_TOKEN" || harness != "claudecode" {
-		t.Fatalf("loadRunSelection = (%#v, %q, %#v, %q), want image selection", project, image, runtimeEnvNames, harness)
+	if selection.Project != nil || selection.ImageRef != "acme/triage:1.2" || strings.Join(selection.RuntimeEnvNames, ",") != "GITHUB_TOKEN" || selection.HarnessName != "claudecode" {
+		t.Fatalf("selectRunInput = %#v, want image selection", selection)
 	}
 
 	if err := os.WriteFile(logPath, nil, 0o644); err != nil {

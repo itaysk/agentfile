@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -22,12 +21,12 @@ import (
 const harnessMessageLimit = 16 << 20
 
 type acpBridge struct {
-	ctx     context.Context
-	options Options
-	image   string
-	harness string
-	conn    *acp.AgentSideConnection
-	ready   chan struct{}
+	ctx         context.Context
+	options     Options
+	imageRef    string
+	harnessName string
+	conn        *acp.AgentSideConnection
+	ready       chan struct{}
 
 	mu       sync.Mutex
 	sessions map[acp.SessionId]*acpSession
@@ -37,7 +36,7 @@ type acpSession struct {
 	bridge    *acpBridge
 	id        acp.SessionId
 	container string
-	cwd       string
+	workspace string
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
 	scanner   *bufio.Scanner
@@ -83,27 +82,27 @@ func runACP(ctx context.Context, options Options) (int, error) {
 	if options.Workspace != "" {
 		return 1, fmt.Errorf("--workspace cannot be used with --acp; the ACP client supplies the workspace")
 	}
-	harness := options.Harness
+	harnessName := options.HarnessName
 	if options.Project != nil {
-		harness = options.Project.AgentFile.Spec.Harness.Name()
+		harnessName = options.Project.AgentFile.Spec.Harness.Name()
 	}
-	if harness == "" {
-		return 1, fmt.Errorf("image %q predates interactive support (missing build.agentfile.harness label); rebuild it with a current af", options.Image)
+	if harnessName == "" {
+		return 1, fmt.Errorf("image %q is missing required build.agentfile.harness label", options.ImageRef)
 	}
-	if harness != "claudecode" && harness != "codex" && harness != "pi" {
-		return 1, fmt.Errorf("--acp does not support harness %s", harness)
+	if harnessName != "claudecode" && harnessName != "codex" && harnessName != "pi" {
+		return 1, fmt.Errorf("--acp does not support harness %s", harnessName)
 	}
-	image, err := resolveRunImage(ctx, options)
+	imageRef, err := selectOrBuildImage(ctx, options)
 	if err != nil {
 		return 1, err
 	}
 	bridge := &acpBridge{
-		ctx:      ctx,
-		options:  options,
-		image:    image,
-		harness:  harness,
-		ready:    make(chan struct{}),
-		sessions: map[acp.SessionId]*acpSession{},
+		ctx:         ctx,
+		options:     options,
+		imageRef:    imageRef,
+		harnessName: harnessName,
+		ready:       make(chan struct{}),
+		sessions:    map[acp.SessionId]*acpSession{},
 	}
 	conn := acp.NewAgentSideConnection(bridge, options.Stdout, options.Stdin)
 	bridge.conn = conn
@@ -147,8 +146,8 @@ func (a *acpBridge) NewSession(_ context.Context, params acp.NewSessionRequest) 
 		return acp.NewSessionResponse{}, acp.NewInvalidParams(map[string]any{"error": "cwd is not a directory"})
 	}
 
-	id := rand.Text()
-	s, err := a.startSession(acp.SessionId(id), params.Cwd)
+	id := acp.SessionId(rand.Text())
+	s, err := a.startSession(id, params.Cwd)
 	if err != nil {
 		return acp.NewSessionResponse{}, acp.NewInternalError(map[string]any{"error": err.Error()})
 	}
@@ -169,7 +168,7 @@ func (a *acpBridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.P
 		case block.Text != nil:
 			content = append(content, map[string]any{"type": "text", "text": block.Text.Text})
 		case block.ResourceLink != nil:
-			text := resourceLinkText(block.ResourceLink, s.cwd)
+			text := resourceLinkText(block.ResourceLink, s.workspace)
 			content = append(content, map[string]any{"type": "text", "text": text})
 		default:
 			return acp.PromptResponse{}, acp.NewInvalidParams(map[string]any{"error": "only text and resource_link prompt blocks are supported"})
@@ -252,19 +251,19 @@ func (a *acpBridge) SetSessionMode(context.Context, acp.SetSessionModeRequest) (
 	return acp.SetSessionModeResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetMode)
 }
 
-func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*acpSession, error) {
-	envs := runEnv(a.options.RuntimeEnvNames, a.options.Env, a.options.EnvAuto)
+func (a *acpBridge) startSession(id acp.SessionId, workspace string) (*acpSession, error) {
+	env := dockerEnv(a.options.RuntimeEnvNames, a.options.Env, a.options.InheritRuntimeEnv)
 	if len(a.options.RuntimeEnvNames) == 0 && a.options.Project != nil {
-		envs = runEnv(a.options.Project.AgentFile.Spec.RuntimeEnvNames(), a.options.Env, a.options.EnvAuto)
+		env = dockerEnv(a.options.Project.AgentFile.Spec.RuntimeEnvNames(), a.options.Env, a.options.InheritRuntimeEnv)
 	}
-	envs["AGENTFILE_RUN_MODE"] = "acp"
+	env["AGENTFILE_RUN_MODE"] = "acp"
 	if a.options.Model != "" {
-		envs["AGENTFILE_MODEL"] = a.options.Model
+		env["AGENTFILE_MODEL"] = a.options.Model
 	}
 	container := "agentfile-acp-" + string(id)
 	args := []string{"run", "--rm", "-i", "--name", container}
-	args = appendRunEnvironment(args, a.options.EnvFiles, envs)
-	args = append(args, "--mount", "type=bind,source="+cwd+",target=/agent/workspace", a.image)
+	args = appendDockerEnv(args, a.options.EnvFiles, env)
+	args = append(args, "--mount", "type=bind,source="+workspace+",target=/agent/workspace", a.imageRef)
 	cmd := exec.CommandContext(a.ctx, a.options.DockerBinary, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -283,7 +282,7 @@ func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*acpSession, err
 		bridge:    a,
 		id:        id,
 		container: container,
-		cwd:       cwd,
+		workspace: workspace,
 		cmd:       cmd,
 		stdin:     stdin,
 		scanner:   bufio.NewScanner(stdout),
@@ -300,7 +299,7 @@ func (a *acpBridge) startSession(id acp.SessionId, cwd string) (*acpSession, err
 }
 
 func (s *acpSession) initialize() error {
-	switch s.bridge.harness {
+	switch s.bridge.harnessName {
 	case "claudecode":
 		return s.initializeClaude()
 	case "codex":
@@ -308,7 +307,7 @@ func (s *acpSession) initialize() error {
 	case "pi":
 		return nil
 	default:
-		return fmt.Errorf("unsupported ACP harness %s", s.bridge.harness)
+		return fmt.Errorf("unsupported ACP harness %s", s.bridge.harnessName)
 	}
 }
 
@@ -384,7 +383,7 @@ func (s *acpSession) request(method string, params map[string]any) (map[string]a
 }
 
 func (s *acpSession) sendPrompt(turn *acpTurn, content []any) error {
-	switch s.bridge.harness {
+	switch s.bridge.harnessName {
 	case "claudecode":
 		return s.write(map[string]any{
 			"type":               "user",
@@ -402,12 +401,12 @@ func (s *acpSession) sendPrompt(turn *acpTurn, content []any) error {
 		turn.requestID = rand.Text()
 		return s.write(map[string]any{"id": turn.requestID, "type": "prompt", "message": contentText(content)})
 	default:
-		return fmt.Errorf("unsupported ACP harness %s", s.bridge.harness)
+		return fmt.Errorf("unsupported ACP harness %s", s.bridge.harnessName)
 	}
 }
 
 func (a *acpBridge) translate(s *acpSession, turn *acpTurn, message map[string]any) (*acp.StopReason, error) {
-	switch s.bridge.harness {
+	switch s.bridge.harnessName {
 	case "claudecode":
 		return a.translateClaude(s, turn, message)
 	case "codex":
@@ -415,7 +414,7 @@ func (a *acpBridge) translate(s *acpSession, turn *acpTurn, message map[string]a
 	case "pi":
 		return a.translatePi(s, turn, message)
 	default:
-		return nil, fmt.Errorf("unsupported ACP harness %s", s.bridge.harness)
+		return nil, fmt.Errorf("unsupported ACP harness %s", s.bridge.harnessName)
 	}
 }
 
@@ -710,9 +709,9 @@ func codexToolOutput(item map[string]any) string {
 	return ""
 }
 
-func (a *acpBridge) update(sessionID acp.SessionId, update acp.SessionUpdate) error {
+func (a *acpBridge) update(id acp.SessionId, update acp.SessionUpdate) error {
 	<-a.ready
-	return a.conn.SessionUpdate(a.ctx, acp.SessionNotification{SessionId: sessionID, Update: update})
+	return a.conn.SessionUpdate(a.ctx, acp.SessionNotification{SessionId: id, Update: update})
 }
 
 func (a *acpBridge) session(id acp.SessionId) (*acpSession, bool) {
@@ -785,7 +784,7 @@ func (s *acpSession) interrupt() error {
 	}
 	s.cancel = true
 	s.mu.Unlock()
-	switch s.bridge.harness {
+	switch s.bridge.harnessName {
 	case "claudecode":
 		return s.write(map[string]any{
 			"type":       "control_request",
@@ -807,11 +806,11 @@ func (s *acpSession) interrupt() error {
 	}
 }
 
-func (s *acpSession) write(value any) error {
+func (s *acpSession) write(message any) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := json.NewEncoder(s.stdin).Encode(value); err != nil {
-		return fmt.Errorf("write %s stream: %w", s.bridge.harness, err)
+	if err := json.NewEncoder(s.stdin).Encode(message); err != nil {
+		return fmt.Errorf("write %s stream: %w", s.bridge.harnessName, err)
 	}
 	return nil
 }
@@ -819,13 +818,9 @@ func (s *acpSession) write(value any) error {
 func (s *acpSession) read() (map[string]any, error) {
 	if !s.scanner.Scan() {
 		if err := s.scanner.Err(); err != nil {
-			return nil, fmt.Errorf("read %s stream: %w", s.bridge.harness, err)
+			return nil, fmt.Errorf("read %s stream: %w", s.bridge.harnessName, err)
 		}
 		err := <-s.done
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 64 && strings.Contains(s.stderr.String(), "agentfile: unsupported run mode acp") {
-			return nil, fmt.Errorf("image %q does not support ACP; rebuild it with a current af", s.bridge.image)
-		}
 		if err != nil {
 			if stderr := strings.TrimSpace(s.stderr.String()); stderr != "" {
 				return nil, fmt.Errorf("ACP container exited: %w: %s", err, stderr)
@@ -836,15 +831,15 @@ func (s *acpSession) read() (map[string]any, error) {
 	}
 	var message map[string]any
 	if err := json.Unmarshal(s.scanner.Bytes(), &message); err != nil {
-		return nil, fmt.Errorf("decode %s stream: %w", s.bridge.harness, err)
+		return nil, fmt.Errorf("decode %s stream: %w", s.bridge.harnessName, err)
 	}
 	return message, nil
 }
 
-func resourceLinkText(link *acp.ContentBlockResourceLink, cwd string) string {
+func resourceLinkText(link *acp.ContentBlockResourceLink, workspace string) string {
 	reference := link.Uri
 	if uri, err := url.Parse(link.Uri); err == nil && uri.Scheme == "file" && (uri.Host == "" || uri.Host == "localhost") {
-		if relative, err := filepath.Rel(cwd, uri.Path); err == nil && filepath.IsLocal(relative) {
+		if relative, err := filepath.Rel(workspace, uri.Path); err == nil && filepath.IsLocal(relative) {
 			reference = filepath.ToSlash(filepath.Join("/agent/workspace", relative))
 		}
 	}

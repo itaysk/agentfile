@@ -125,12 +125,12 @@ func TestSpecRuntimeEnvNames(t *testing.T) {
 	if got := strings.Join(spec.RuntimeEnvNames(), ","); got != "GITHUB_TOKEN,SEARCH_MCP_AUTH" {
 		t.Fatalf("RuntimeEnvNames = %q, want all distinct names", got)
 	}
-	if got := strings.Join(spec.ConfigRefNames(), ","); got != "GITHUB_TOKEN,SEARCH_MCP_AUTH" {
-		t.Fatalf("ConfigRefNames = %q, want config-referenced names", got)
+	if got := strings.Join(spec.ConfigEnvNames(), ","); got != "GITHUB_TOKEN,SEARCH_MCP_AUTH" {
+		t.Fatalf("ConfigEnvNames = %q, want config-referenced names", got)
 	}
 	specEnvsOnly := Spec{Envs: []Env{{Name: "FOO", ValueSource: runtime("BAR")}}}
-	if len(specEnvsOnly.ConfigRefNames()) != 0 {
-		t.Fatalf("ConfigRefNames = %v, want empty for spec.envs-only sources", specEnvsOnly.ConfigRefNames())
+	if len(specEnvsOnly.ConfigEnvNames()) != 0 {
+		t.Fatalf("ConfigEnvNames = %v, want empty for spec.envs-only sources", specEnvsOnly.ConfigEnvNames())
 	}
 	if got := strings.Join(specEnvsOnly.RuntimeEnvNames(), ","); got != "BAR" {
 		t.Fatalf("RuntimeEnvNames = %q, want BAR", got)

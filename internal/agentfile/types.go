@@ -35,7 +35,6 @@ type Spec struct {
 }
 
 type Harness struct {
-	Image      string             `yaml:"image,omitempty" json:"image,omitempty"`
 	ClaudeCode *ClaudeCodeHarness `yaml:"claudecode,omitempty" json:"claudecode,omitempty"`
 	Codex      *EmptyObject       `yaml:"codex,omitempty" json:"codex,omitempty"`
 	Pi         *EmptyObject       `yaml:"pi,omitempty" json:"pi,omitempty"`
@@ -108,11 +107,11 @@ type ValueSource struct {
 	RuntimeEnv *RuntimeEnvSource `yaml:"runtimeEnv,omitempty" json:"runtimeEnv,omitempty"`
 }
 
-// RuntimeEnvSource reads the entry's value from a container environment
-// variable at container start. Referenced variables are required: the
-// container fails when one is unset. Empty is a value: a variable set to ""
-// is used verbatim and does not trigger the required guard. Runtime values
-// never appear in image layers.
+// RuntimeEnvSource reads the entry's value from the invocation environment
+// during harness command preparation. Referenced variables are required.
+// Empty is a value: a variable set to "" is used verbatim and does not trigger
+// the required guard. Environment values supplied at invocation time never
+// appear in image layers.
 type RuntimeEnvSource struct {
 	Name string `yaml:"name" json:"name"`
 }
@@ -127,6 +126,7 @@ type Header struct {
 	ValueSource `yaml:",inline"`
 }
 
+// Name returns the selected harness name, or an empty string if none is selected.
 func (h Harness) Name() string {
 	switch {
 	case h.ClaudeCode != nil:
@@ -140,22 +140,7 @@ func (h Harness) Name() string {
 	}
 }
 
-func (h Harness) BaseImage() string {
-	if h.Image != "" {
-		return h.Image
-	}
-	switch h.Name() {
-	case "claudecode":
-		return "itaysk/claudecode:latest"
-	case "codex":
-		return "itaysk/codex:latest"
-	case "pi":
-		return "itaysk/pi:latest"
-	default:
-		return ""
-	}
-}
-
+// SelectorCount returns the number of selected harness variants.
 func (h Harness) SelectorCount() int {
 	count := 0
 	if h.ClaudeCode != nil {
@@ -170,6 +155,7 @@ func (h Harness) SelectorCount() int {
 	return count
 }
 
+// ProviderName returns the selected provider name, or an empty string if none is selected.
 func (l LLM) ProviderName() string {
 	switch {
 	case l.Anthropic != nil:
@@ -183,6 +169,7 @@ func (l LLM) ProviderName() string {
 	}
 }
 
+// Model returns the model declared for the selected provider.
 func (l LLM) Model() string {
 	switch {
 	case l.Anthropic != nil:
@@ -196,6 +183,7 @@ func (l LLM) Model() string {
 	}
 }
 
+// ProviderCount returns the number of selected model providers.
 func (l LLM) ProviderCount() int {
 	count := 0
 	if l.Anthropic != nil {
@@ -210,7 +198,8 @@ func (l LLM) ProviderCount() int {
 	return count
 }
 
-func (s Source) TypeCount() int {
+// VariantCount returns the number of selected source variants.
+func (s Source) VariantCount() int {
 	count := 0
 	if s.Text != nil {
 		count++
@@ -227,18 +216,21 @@ func (s Source) TypeCount() int {
 	return count
 }
 
+// TextSource returns a literal text source.
 func TextSource(value string) Source {
 	return Source{Text: &value}
 }
 
-func (v ValueSource) ValueString() string {
+// LiteralValue returns the literal value, or an empty string for a nonliteral source.
+func (v ValueSource) LiteralValue() string {
 	if v.Value == nil {
 		return ""
 	}
 	return *v.Value
 }
 
-func (v ValueSource) TypeCount() int {
+// VariantCount returns the number of selected value-source variants.
+func (v ValueSource) VariantCount() int {
 	count := 0
 	if v.Value != nil {
 		count++
@@ -249,9 +241,7 @@ func (v ValueSource) TypeCount() int {
 	return count
 }
 
-// RuntimeEnvNames returns every distinct runtimeEnv name in the spec, sorted:
-// the set the runner forwards from the host and the entrypoint requires at
-// container start.
+// RuntimeEnvNames returns every distinct runtimeEnv name in the spec, sorted.
 func (s Spec) RuntimeEnvNames() []string {
 	set := map[string]struct{}{}
 	for _, env := range s.Envs {
@@ -259,16 +249,14 @@ func (s Spec) RuntimeEnvNames() []string {
 			set[env.RuntimeEnv.Name] = struct{}{}
 		}
 	}
-	for _, name := range s.ConfigRefNames() {
+	for _, name := range s.ConfigEnvNames() {
 		set[name] = struct{}{}
 	}
 	return slices.Sorted(maps.Keys(set))
 }
 
-// ConfigRefNames returns the distinct runtimeEnv names referenced by harness
-// config files (MCP stdio envs and HTTP headers), sorted — these need
-// JSON/TOML escaping at container start; spec.envs references do not.
-func (s Spec) ConfigRefNames() []string {
+// ConfigEnvNames returns the sorted runtimeEnv names used in harness configuration.
+func (s Spec) ConfigEnvNames() []string {
 	set := map[string]struct{}{}
 	for _, mcp := range s.MCPs {
 		if mcp.Stdio != nil {

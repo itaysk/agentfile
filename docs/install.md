@@ -2,7 +2,8 @@
 
 ## Prerequisites
 
-- Container runtime (e.g Docker) for building and running agents.
+- The selected harness (`claude`, `codex`, or `pi`) on `PATH` for `runa` invocations.
+- Docker for image builds and image runs. Docker is not required to build bundles or use `runa`.
 - Git if fetching assets from Git repositories.
 
 ## Installation
