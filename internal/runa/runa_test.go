@@ -84,7 +84,7 @@ func TestInvocationEnvPrecedence(t *testing.T) {
 	if err := os.WriteFile(envFile, []byte("FROM_AMBIENT\nSHARED=file\nQUOTED=\"value with spaces\"\nexport EXPORTED='yes'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	env, err := invocationEnv([]string{envFile}, map[string]string{"SHARED": "explicit"})
+	env, err := InvocationEnv([]string{envFile}, map[string]string{"SHARED": "explicit"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,186 +2,455 @@ package cli
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/itaysk/agentfile/internal/agentfile"
+	"github.com/itaysk/agentfile/internal/bundle"
 	"github.com/itaysk/agentfile/internal/harness"
 	"github.com/itaysk/agentfile/internal/registry"
 )
 
-func TestRunHelpExitsZero(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := Run([]string{"run", "--help"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if !strings.Contains(stdout.String(), "usage: af run") {
-		t.Fatalf("stdout = %q, want run usage", stdout.String())
-	}
-	if !strings.Contains(stdout.String(), "--tui") {
-		t.Fatalf("stdout = %q, want --tui in run usage", stdout.String())
-	}
-	if !strings.Contains(stdout.String(), "--acp") {
-		t.Fatalf("stdout = %q, want --acp in run usage", stdout.String())
-	}
-	if !strings.Contains(stdout.String(), "--env-auto") {
-		t.Fatalf("stdout = %q, want --env-auto in run usage", stdout.String())
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-}
-
-func TestBuildRejectsPositionalArguments(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := Run([]string{"build", "agentfile.yaml"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if !strings.Contains(stderr.String(), "build does not accept positional arguments") {
-		t.Fatalf("stderr = %q, want positional argument error", stderr.String())
-	}
-}
-
-func TestRunErrorPrefixesOnce(t *testing.T) {
+func TestHelpDescribesBundlePrimaryHierarchy(t *testing.T) {
 	for _, tt := range []struct {
-		name string
+		args []string
+		want []string
+	}{
+		{nil, []string{"build", "bundle build", "bundle run", "image build", "image run", "agents register"}},
+		{[]string{"bundle", "--help"}, []string{"af bundle", "build", "run"}},
+		{[]string{"image", "--help"}, []string{"af image", "build", "run"}},
+		{[]string{"agents", "--help"}, []string{"af agents", "register", "remove"}},
+		{[]string{"run", "--help"}, []string{"--bundle FILE", "--image REF", "--name NAME", "--acp"}},
+		{[]string{"bundle", "run", "--help"}, []string{"af bundle run --bundle FILE", "--acp"}},
+		{[]string{"image", "run", "--help"}, []string{"af image run --image REF"}},
+		{[]string{"agents", "run", "--help"}, []string{"af agents run --name NAME"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(tt.args, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%q) = %d, stderr = %q", tt.args, code, stderr.String())
+		}
+		for _, want := range tt.want {
+			if !strings.Contains(stdout.String(), want) {
+				t.Fatalf("Run(%q) stdout = %q, want %q", tt.args, stdout.String(), want)
+			}
+		}
+	}
+}
+
+func TestBundleBuildCanonicalAndNakedParity(t *testing.T) {
+	dir := t.TempDir()
+	agentfilePath := writeCLIAgentfile(t, dir, "build-parity", "1")
+	naked := filepath.Join(dir, "naked.tar.gz")
+	canonical := filepath.Join(dir, "canonical.tar.gz")
+
+	for _, tt := range []struct {
+		args   []string
+		output string
+	}{
+		{[]string{"build", "--file", agentfilePath, "--output", naked}, naked},
+		{[]string{"bundle", "build", "--file", agentfilePath, "--output", canonical}, canonical},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(tt.args, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%q) = %d, stderr = %q", tt.args, code, stderr.String())
+		}
+		if stdout.String() != "Built "+tt.output+"\n" {
+			t.Fatalf("Run(%q) stdout = %q", tt.args, stdout.String())
+		}
+	}
+	nakedData, err := os.ReadFile(naked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalData, err := os.ReadFile(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(nakedData, canonicalData) {
+		t.Fatal("canonical and naked bundle builds differ")
+	}
+}
+
+func TestBundleBuildDefaultNameAndDockerIndependence(t *testing.T) {
+	dir := t.TempDir()
+	writeCLIAgentfile(t, dir, "default-name", "2")
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldDir) })
+	t.Setenv("PATH", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"build"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "Built default-name__2.tar.gz\n" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "default-name__2.tar.gz")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestImageBuildRequiresBundleAndUsesTag(t *testing.T) {
+	bundlePath := buildCLIBundle(t, "image-build", "3")
+	dockerPath, logPath := installCLIFakeDocker(t)
+	t.Setenv("PATH", filepath.Dir(dockerPath))
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"image", "build", "--bundle", bundlePath, "--base-image", "example/base:1", "--tag", "example/agent:3"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "Built example/agent:3\n" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if log := readCLILog(t, logPath); !strings.Contains(log, "build -t example/agent:3") || !strings.Contains(log, "FROM example/base:1") {
+		t.Fatalf("docker log = %q", log)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"image", "build", "--file", "agentfile.yaml"}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "unknown image build argument") {
+		t.Fatalf("removed image source build = %d, stderr = %q", code, stderr.String())
+	}
+}
+
+func TestRunSelectorsAreRequiredExclusiveAndScopedBeforeSideEffects(t *testing.T) {
+	dockerPath, logPath := installCLIFakeDocker(t)
+	t.Setenv("PATH", filepath.Dir(dockerPath))
+	for _, tt := range []struct {
 		args []string
 		want string
 	}{
-		{"run", []string{"run", "--bad"}, "unknown run argument"},
-		{"agents", []string{"agents", "bad"}, "unknown agents command"},
+		{[]string{"run"}, "exactly one"},
+		{[]string{"run", "--bundle", "missing", "--image", "example/image"}, "mutually exclusive"},
+		{[]string{"bundle", "run", "--image", "example/image"}, "accepts only --bundle"},
+		{[]string{"image", "run", "--bundle", "missing"}, "accepts only --image"},
+		{[]string{"agents", "run", "--image", "example/image"}, "accepts only --name"},
+		{[]string{"run", "positional-name"}, "does not accept positional"},
+		{[]string{"run", "--file", "agentfile.yaml"}, "unknown run argument"},
+		{[]string{"build", "--target", "image"}, "unknown bundle build argument"},
+		{[]string{"agents", "remove", "legacy-name"}, "does not accept positional"},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			var stdout bytes.Buffer
-			var stderr bytes.Buffer
-			code := Run(tt.args, &stdout, &stderr)
-			if code != 1 {
-				t.Fatalf("exit code = %d, want 1", code)
-			}
-			if got := strings.Count(stderr.String(), "af:"); got != 1 {
-				t.Fatalf("stderr = %q, want one af prefix", stderr.String())
-			}
-			if !strings.Contains(stderr.String(), tt.want) {
-				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.want)
-			}
-			if stdout.Len() != 0 {
-				t.Fatalf("stdout = %q, want empty", stdout.String())
-			}
-		})
-	}
-}
-
-func TestParseBuildFlagsSupportsShortFileEquals(t *testing.T) {
-	options := buildFlags{}
-	if err := parseBuildFlags([]string{"-f=agentfile.yaml"}, &options); err != nil {
-		t.Fatalf("parseBuildFlags returned error: %v", err)
-	}
-	if options.file != "agentfile.yaml" {
-		t.Fatalf("file = %q, want agentfile.yaml", options.file)
-	}
-}
-
-func TestParseBuildFlagsSupportsBundleAndImageTargets(t *testing.T) {
-	options := buildFlags{}
-	if err := parseBuildFlags([]string{"--target", "bundle", "-f", "agentfile.yaml", "-o", "agent.tar.gz"}, &options); err != nil {
-		t.Fatal(err)
-	}
-	if options.target != "bundle" || options.output != "agent.tar.gz" || !options.fileSet {
-		t.Fatalf("options = %#v", options)
-	}
-	for _, args := range [][]string{
-		{"--target", "bundle", "--tag", "bad"},
-		{"--target", "bundle", "--base-image", "bad"},
-		{"--target", "image", "--output", "bad"},
-		{"--file", "a", "--bundle", "b"},
-	} {
-		if err := parseBuildFlags(args, &buildFlags{}); err == nil {
-			t.Fatalf("parseBuildFlags(%q) succeeded", args)
+		var stdout, stderr bytes.Buffer
+		if code := Run(tt.args, &stdout, &stderr); code != 1 {
+			t.Fatalf("Run(%q) = %d, stderr = %q", tt.args, code, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), tt.want) {
+			t.Fatalf("Run(%q) stderr = %q, want %q", tt.args, stderr.String(), tt.want)
 		}
 	}
-	options = buildFlags{}
-	if err := parseBuildFlags([]string{"--target", "image", "--base-image=example/base:1"}, &options); err != nil {
-		t.Fatal(err)
-	}
-	if options.baseImage != "example/base:1" {
-		t.Fatalf("baseImage = %q, want example/base:1", options.baseImage)
+	if log := readCLILog(t, logPath); log != "" {
+		t.Fatalf("invalid selectors caused Docker side effects:\n%s", log)
 	}
 }
 
-func TestBuildBundleDoesNotRequireDocker(t *testing.T) {
-	dir := t.TempDir()
-	agentfilePath := filepath.Join(dir, "agentfile.yaml")
-	if err := os.WriteFile(agentfilePath, []byte(`apiVersion: agentfile.build/v1
-kind: Agent
-metadata:
-  name: cli-bundle
-spec:
-  harness:
-    codex: {}
-  llm:
-    openai:
-      model: gpt-5
-  prompt:
-    text: hello
-`), 0o644); err != nil {
+func TestBundleRunCanonicalNakedAndRegisteredParity(t *testing.T) {
+	isolateCLIConfig(t)
+	bundlePath := buildCLIBundle(t, "bundle-run", "1")
+	binDir := installCLIFakeHarness(t)
+	t.Setenv("PATH", binDir)
+
+	var registerOut, registerErr bytes.Buffer
+	if code := Run([]string{"agents", "register", "--name", "friendly", "--bundle", bundlePath}, &registerOut, &registerErr); code != 0 {
+		t.Fatalf("register = %d, stderr = %q", code, registerErr.String())
+	}
+	if registerOut.String() != "Registered friendly\n" {
+		t.Fatalf("register stdout = %q", registerOut.String())
+	}
+	if err := os.Remove(bundlePath); err != nil {
 		t.Fatal(err)
 	}
-	output := filepath.Join(dir, "cli.tar.gz")
+
+	for _, args := range [][]string{
+		{"run", "--name", "friendly"},
+		{"agents", "run", "--name", "friendly"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(args, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%q) = %d, stderr = %q", args, code, stderr.String())
+		}
+		if stdout.String() != "cli-harness\n" || !strings.Contains(stderr.String(), "without isolation") {
+			t.Fatalf("Run(%q) stdout = %q, stderr = %q", args, stdout.String(), stderr.String())
+		}
+	}
+
+	managed := registeredBundlePath(t, "friendly")
+	for _, args := range [][]string{
+		{"run", "--bundle", managed},
+		{"bundle", "run", "--bundle", managed},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(args, &stdout, &stderr); code != 0 || stdout.String() != "cli-harness\n" {
+			t.Fatalf("Run(%q) = %d, stdout = %q, stderr = %q", args, code, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestImageRunCanonicalNakedAndRegisteredParity(t *testing.T) {
+	isolateCLIConfig(t)
+	dockerPath, logPath := installCLIFakeDocker(t)
+	t.Setenv("PATH", filepath.Dir(dockerPath))
+
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"build", "--target", "bundle", "--file", agentfilePath, "--output", output}, &stdout, &stderr)
+	if code := Run([]string{"agents", "register", "--name", "friendly", "--image", "acme/agent:1"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("register = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "Registered friendly\n" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"agents", "register", "--image", "acme/inferred:1"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("inferred register = %d, stderr = %q", code, stderr.String())
+	}
+	reg, err := registry.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry := reg.Agents["image-agent"]; entry.Image != "acme/inferred:1" || entry.Version != "latest" || entry.Harness != "codex" || entry.Digest != "sha256:0123456789abcdef" {
+		t.Fatalf("inferred image entry = %#v", reg.Agents["image-agent"])
+	}
+	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{
+		{"run", "--image", "acme/agent:1", "--prompt", "hi"},
+		{"image", "run", "--image", "acme/agent:1", "--prompt", "hi"},
+		{"run", "--name", "friendly", "--prompt", "hi"},
+		{"agents", "run", "--name", "friendly", "--prompt", "hi"},
+	} {
+		var runOut, runErr bytes.Buffer
+		if code := Run(args, &runOut, &runErr); code != 0 {
+			t.Fatalf("Run(%q) = %d, stderr = %q", args, code, runErr.String())
+		}
+	}
+	if got := strings.Count(readCLILog(t, logPath), "run --rm"); got != 4 {
+		t.Fatalf("docker run count = %d, want 4\n%s", got, readCLILog(t, logPath))
+	}
+}
+
+func TestImageRunPullsBeforeRetryingInspection(t *testing.T) {
+	dockerPath, logPath := installCLIFakeDocker(t)
+	t.Setenv("PATH", filepath.Dir(dockerPath))
+	t.Setenv("DOCKER_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "failed"))
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--image", "remote/agent:1", "--prompt", "hi"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "pulling remote/agent:1") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	log := readCLILog(t, logPath)
+	if strings.Count(log, "image inspect") != 2 || !strings.Contains(log, "pull remote/agent:1") {
+		t.Fatalf("docker log = %q", log)
+	}
+}
+
+func TestRunFlagsReachImageRunner(t *testing.T) {
+	dockerPath, logPath := installCLIFakeDocker(t)
+	t.Setenv("PATH", filepath.Dir(dockerPath))
+	t.Setenv("GITHUB_TOKEN", "host-token")
+	workspace := t.TempDir()
+	envFile := filepath.Join(t.TempDir(), "agent.env")
+	if err := os.WriteFile(envFile, []byte("FROM_FILE=yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"run", "--image", "acme/agent:1", "--prompt", "say hi", "--model", "gpt-5",
+		"--workspace", workspace, "--env", "EXTRA=value", "--env-file", envFile, "--env-auto", "--debug",
+	}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("Run code = %d, stderr = %q", code, stderr.String())
+		t.Fatalf("Run = %d, stderr = %q", code, stderr.String())
 	}
-	if _, err := os.Stat(output); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestParseRunFlagsSupportsPromptOverride(t *testing.T) {
-	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"cc", "--prompt", "say hi"}, &options); err != nil {
-		t.Fatalf("parseRunFlags returned error: %v", err)
-	}
-	if options.name != "cc" {
-		t.Fatalf("name = %q, want cc", options.name)
-	}
-	if options.prompt == nil || *options.prompt != "say hi" {
-		t.Fatalf("prompt = %v, want say hi", options.prompt)
+	log := readCLILog(t, logPath)
+	for _, want := range []string{
+		"-e AGENTFILE_MODEL=gpt-5", "-e AGENTFILE_PROMPT=say hi", "-e EXTRA=value", "-e GITHUB_TOKEN=host-token",
+		"--env-file " + envFile, "--mount type=bind,source=" + workspace + ",target=/agent/workspace", "acme/agent:1",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("docker log = %q, want %q", log, want)
+		}
 	}
 }
 
-func TestParseRunFlagsSupportsHostAndBundle(t *testing.T) {
-	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"--bundle", "agent.tar.gz"}, &options); err != nil {
+func TestBundleACPAcceptedDirectAndThroughRegistry(t *testing.T) {
+	isolateCLIConfig(t)
+	bundlePath := buildCLIBundle(t, "bundle-acp", "1")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--bundle", bundlePath, "--acp"}, &stdout, &stderr); code != 0 || !strings.Contains(stderr.String(), "without isolation") {
+		t.Fatalf("direct ACP = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"agents", "register", "--bundle", bundlePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("register = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"run", "--name", "bundle-acp", "--acp"}, &stdout, &stderr); code != 0 || !strings.Contains(stderr.String(), "without isolation") {
+		t.Fatalf("registered ACP = %d, stderr = %q", code, stderr.String())
+	}
+}
+
+func TestRegisterBundleInferenceOverrideListAndRemove(t *testing.T) {
+	isolateCLIConfig(t)
+	bundlePath := buildCLIBundle(t, "inferred", "1")
+
+	for _, args := range [][]string{
+		{"agents", "register", "--bundle", bundlePath},
+		{"agents", "register", "--name", "override", "--bundle", bundlePath},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(args, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%q) = %d, stderr = %q", args, code, stderr.String())
+		}
+	}
+	managedPath := registeredBundlePath(t, "inferred")
+	entries, err := os.ReadDir(filepath.Dir(managedPath))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if options.bundle != "agent.tar.gz" {
-		t.Fatalf("options = %#v", options)
+	if len(entries) != 1 {
+		t.Fatalf("managed bundles = %d, want deduplicated one", len(entries))
+	}
+
+	var listOut, listErr bytes.Buffer
+	if code := Run([]string{"agents", "list"}, &listOut, &listErr); code != 0 {
+		t.Fatalf("list = %d, stderr = %q", code, listErr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(listOut.String()), "\n")
+	if got := strings.Join(strings.Fields(lines[0]), ","); got != "NAME,VERSION,HARNESS,DIGEST" {
+		t.Fatalf("list header = %q", lines[0])
+	}
+	wantDigest := strings.TrimSuffix(filepath.Base(managedPath), ".tar.gz")[:12]
+	if fields := strings.Fields(lines[1]); len(fields) != 4 || fields[0] != "inferred" || fields[1] != "1" || fields[2] != "codex" || fields[3] != wantDigest {
+		t.Fatalf("list = %q, want inferred agent metadata", listOut.String())
+	}
+	if !strings.Contains(listOut.String(), "override") {
+		t.Fatalf("list = %q, want override", listOut.String())
+	}
+
+	for _, name := range []string{"inferred", "override"} {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"agents", "remove", "--name", name}, &stdout, &stderr); code != 0 {
+			t.Fatalf("remove %s = %d, stderr = %q", name, code, stderr.String())
+		}
+	}
+	entries, err = os.ReadDir(registeredBundlePathDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("managed bundles remain after last removal: %v", entries)
+	}
+}
+
+func TestListShowsUnknownMetadataForExistingRegistryEntries(t *testing.T) {
+	isolateCLIConfig(t)
+	reg := &registry.Registry{Agents: map[string]registry.Entry{
+		"existing": {Name: "existing", Bundle: "bundle.tar.gz"},
+	}}
+	if err := registry.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	if err := runList(nil, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if fields := strings.Fields(strings.Split(stdout.String(), "\n")[1]); len(fields) != 4 || strings.Join(fields[1:], "") != "---" {
+		t.Fatalf("list = %q, want unknown metadata markers", stdout.String())
+	}
+}
+
+func TestReplacingRegisteredBundleRemovesOldManagedCopy(t *testing.T) {
+	isolateCLIConfig(t)
+	first := buildCLIBundle(t, "first", "1")
+	second := buildCLIBundle(t, "second", "1")
+	for _, source := range []string{first, second} {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"agents", "register", "--name", "same", "--bundle", source}, &stdout, &stderr); code != 0 {
+			t.Fatalf("register %s = %d, stderr = %q", source, code, stderr.String())
+		}
+	}
+	entries, err := os.ReadDir(registeredBundlePathDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || filepath.Join(registeredBundlePathDir(t), entries[0].Name()) != registeredBundlePath(t, "same") {
+		t.Fatalf("managed bundles after replacement = %v", entries)
+	}
+}
+
+func TestRegisterRejectsMalformedBundleAndNonAgentfileImage(t *testing.T) {
+	isolateCLIConfig(t)
+	bad := filepath.Join(t.TempDir(), "bad.tar.gz")
+	if err := os.WriteFile(bad, []byte("not a bundle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"agents", "register", "--bundle", bad}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "bundle gzip") {
+		t.Fatalf("malformed register = %d, stderr = %q", code, stderr.String())
+	}
+
+	dockerPath, _ := installCLIFakeDocker(t)
+	t.Setenv("PATH", filepath.Dir(dockerPath))
+	t.Setenv("DOCKER_BAD_IMAGE", "1")
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"agents", "register", "--image", "plain:latest"}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "was not built by agentfile") {
+		t.Fatalf("plain image register = %d, stderr = %q", code, stderr.String())
+	}
+}
+
+func TestParseRunFlagsModesAndWorkspace(t *testing.T) {
+	options := runFlags{}
+	if err := parseRunFlags([]string{"--image", "agent:1", "--tui"}, &options, imageSelector); err != nil {
+		t.Fatal(err)
+	}
+	if options.mode != harness.ModeTUI {
+		t.Fatalf("mode = %q", options.mode)
 	}
 	for _, args := range [][]string{
-		{"--image", "agent:1", "--host"},
-		{"--file", "agentfile.yaml", "--host", "--acp"},
-		{"--bundle", "agent.tar.gz", "--acp"},
+		{"--image", "agent:1", "--tui", "--prompt", "hi"},
+		{"--image", "agent:1", "--acp", "--workspace", "."},
+		{"--image", "agent:1", "--acp", "--tui"},
 	} {
-		if err := parseRunFlags(args, &runFlags{env: map[string]string{}}); err == nil {
+		if err := parseRunFlags(args, &runFlags{}, allSelectors); err == nil {
 			t.Fatalf("parseRunFlags(%q) succeeded", args)
 		}
 	}
 }
 
-func TestRunBuildsBundleBeforeHostExecution(t *testing.T) {
-	projectDir := t.TempDir()
-	agentfilePath := filepath.Join(projectDir, "agentfile.yaml")
-	writeCLITestFile(t, agentfilePath, `apiVersion: agentfile.build/v1
+func TestRunErrorPrefixesOnce(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"bundle", "unknown"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("code = %d", code)
+	}
+	if strings.Count(stderr.String(), "af:") != 1 {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func writeCLIAgentfile(t *testing.T, dir, name, version string) string {
+	t.Helper()
+	path := filepath.Join(dir, "agentfile.yaml")
+	content := `apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
-  name: host-test
+  name: ` + name + `
+  version: "` + version + `"
 spec:
   harness:
     codex: {}
@@ -190,405 +459,93 @@ spec:
       model: gpt-5-mini
   prompt:
     text: say hi
-`)
-	binDir := t.TempDir()
-	harness := filepath.Join(binDir, "codex")
-	writeCLITestFile(t, harness, "#!/bin/sh\necho cli-host\n")
-	if err := os.Chmod(harness, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", binDir)
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"run", "--file", agentfilePath, "--host"}, &stdout, &stderr)
-	if code != 0 || stdout.String() != "cli-host\n" {
-		t.Fatalf("Run = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
-	}
-}
-
-func TestParseRunFlagsSupportsTUIWithoutPrompt(t *testing.T) {
-	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"cc", "--tui"}, &options); err != nil {
-		t.Fatalf("parseRunFlags returned error: %v", err)
-	}
-	if options.mode != harness.ModeTUI {
-		t.Fatalf("mode = %q, want tui", options.mode)
-	}
-	if err := parseRunFlags([]string{"--tui", "--prompt", "say hi"}, &runFlags{env: map[string]string{}}); err == nil || !strings.Contains(err.Error(), "--prompt cannot be used with --tui") {
-		t.Fatalf("parseRunFlags TUI/prompt error = %v, want conflict", err)
-	}
-}
-
-func TestParseRunFlagsSupportsACP(t *testing.T) {
-	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"cc", "--acp"}, &options); err != nil {
-		t.Fatalf("parseRunFlags returned error: %v", err)
-	}
-	if options.mode != harness.ModeACP {
-		t.Fatalf("mode = %q, want acp", options.mode)
-	}
-	for _, args := range [][]string{
-		{"--acp", "--tui"},
-		{"--acp", "--prompt", "say hi"},
-		{"--acp", "--workspace", "."},
-		{"--acp", "--ws", "."},
-	} {
-		if err := parseRunFlags(args, &runFlags{env: map[string]string{}}); err == nil {
-			t.Fatalf("parseRunFlags(%q) accepted incompatible ACP flags", args)
-		}
-	}
-}
-
-func TestParseRunFlagsSupportsModelOverride(t *testing.T) {
-	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"--model=claude-sonnet-4-5"}, &options); err != nil {
-		t.Fatalf("parseRunFlags returned error: %v", err)
-	}
-	if options.model != "claude-sonnet-4-5" {
-		t.Fatalf("model = %q, want claude-sonnet-4-5", options.model)
-	}
-
-	for _, args := range [][]string{{"--model="}, {"--llm.anthropic.model", "claude-sonnet-4-5"}, {"--prompt.text", "hi"}, {"--harness.image", "example/image"}, {"--systemPrompt", "x"}} {
-		if err := parseRunFlags(args, &runFlags{env: map[string]string{}}); err == nil {
-			t.Fatalf("parseRunFlags(%q) accepted removed generic override", args)
-		}
-	}
-}
-
-func TestParseRunFlagsSupportsImage(t *testing.T) {
-	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"--image=acme/triage:1.2"}, &options); err != nil {
-		t.Fatalf("parseRunFlags returned error: %v", err)
-	}
-	if options.image != "acme/triage:1.2" {
-		t.Fatalf("image = %q, want acme/triage:1.2", options.image)
-	}
-
-	for _, args := range [][]string{
-		{"--image="},
-		{"--image"},
-		{"--image", "acme/triage:1.2", "triage"},
-		{"--image", "acme/triage:1.2", "--file", "agentfile.yaml"},
-		{"triage", "--file", "agentfile.yaml"},
-	} {
-		if err := parseRunFlags(args, &runFlags{env: map[string]string{}}); err == nil {
-			t.Fatalf("parseRunFlags(%q) accepted invalid image selection", args)
-		}
-	}
-}
-
-func TestParseRunFlagsWorkspaceShorthands(t *testing.T) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"--workspace", "."}, &options); err != nil {
-		t.Fatalf("parseRunFlags returned error: %v", err)
-	}
-	if options.workspace != cwd {
-		t.Fatalf("workspace = %q, want cwd %q", options.workspace, cwd)
-	}
-
-	options = runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"--ws=/tmp/work"}, &options); err != nil {
-		t.Fatalf("parseRunFlags returned error: %v", err)
-	}
-	if options.workspace != "/tmp/work" {
-		t.Fatalf("workspace = %q, want /tmp/work", options.workspace)
-	}
-
-	if err := parseRunFlags([]string{"--workspace="}, &runFlags{env: map[string]string{}}); err == nil {
-		t.Fatal("parseRunFlags accepted empty --workspace, want value error")
-	}
-}
-
-func TestParseRunFlagsDebug(t *testing.T) {
-	options := runFlags{env: map[string]string{}}
-	if err := parseRunFlags([]string{"--debug"}, &options); err != nil {
-		t.Fatalf("parseRunFlags returned error: %v", err)
-	}
-	if !options.debug {
-		t.Fatal("debug = false, want true")
-	}
-}
-
-func TestRegisterAndListUseConfigRegistry(t *testing.T) {
-	// Isolate os.UserConfigDir() across platforms: Linux honors XDG_CONFIG_HOME,
-	// macOS/Windows derive from HOME/AppData.
-	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("HOME", configHome)
-	t.Setenv("AppData", configHome)
-	projectDir := t.TempDir()
-	writeCLITestFile(t, filepath.Join(projectDir, "agentfile.yaml"), `apiVersion: agentfile.build/v1
-kind: Agent
-metadata:
-  name: hello
-spec:
-  harness:
-    codex: {}
-  llm:
-    openai:
-      model: gpt-5-mini
-`)
-
-	var registerOut bytes.Buffer
-	var registerErr bytes.Buffer
-	code := Run([]string{"agents", "register", "alias", "-f", filepath.Join(projectDir, "agentfile.yaml")}, &registerOut, &registerErr)
-	if code != 0 {
-		t.Fatalf("register exit code = %d, stderr = %q", code, registerErr.String())
-	}
-	if !strings.Contains(registerOut.String(), "Registered alias") {
-		t.Fatalf("register stdout = %q, want alias", registerOut.String())
-	}
-	registryPath, err := registry.Path()
-	if err != nil {
-		t.Fatal(err)
-	}
-	registryData, err := os.ReadFile(registryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(registryData), "defaultImageTag") {
-		t.Fatalf("registry = %q, want no defaultImageTag", registryData)
-	}
-	writeCLITestFile(t, filepath.Join(projectDir, "agentfile.yaml"), `apiVersion: agentfile.build/v1
-kind: Agent
-metadata:
-  name: hello
-  version: "2"
-spec:
-  harness:
-    codex: {}
-  llm:
-    openai:
-      model: gpt-5-mini
-`)
-	selection, err := selectRunInput(runFlags{name: "alias"}, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if selection.ImageRef != "" {
-		t.Fatalf("registered run image = %q, want project selection", selection.ImageRef)
-	}
-	if got := selection.Project.DefaultImageTag(); got != "hello:2" {
-		t.Fatalf("registered run image tag = %q, want hello:2", got)
-	}
-
-	var listOut bytes.Buffer
-	var listErr bytes.Buffer
-	code = Run([]string{"agents", "list"}, &listOut, &listErr)
-	if code != 0 {
-		t.Fatalf("list exit code = %d, stderr = %q", code, listErr.String())
-	}
-	if !strings.Contains(listOut.String(), "alias") || !strings.Contains(listOut.String(), "hello:2") {
-		t.Fatalf("list stdout = %q, want registered alias and tag", listOut.String())
-	}
-}
-
-func TestRegisterImageListAndRunValidation(t *testing.T) {
-	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("HOME", configHome)
-	t.Setenv("AppData", configHome)
-	dockerPath, logPath := installCLIFakeDocker(t)
-	t.Setenv("PATH", filepath.Dir(dockerPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	var registerOut bytes.Buffer
-	var registerErr bytes.Buffer
-	code := Run([]string{"agents", "register", "--image", "acme/triage:1.2"}, &registerOut, &registerErr)
-	if code != 0 {
-		t.Fatalf("register exit code = %d, stderr = %q", code, registerErr.String())
-	}
-	if !strings.Contains(registerOut.String(), "Registered image-agent") {
-		t.Fatalf("register stdout = %q, want image label name", registerOut.String())
-	}
-	registryPath, err := registry.Path()
-	if err != nil {
-		t.Fatal(err)
-	}
-	registryData, err := os.ReadFile(registryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(registryData), `"image": "acme/triage:1.2"`) || strings.Contains(string(registryData), "agentfilePath") {
-		t.Fatalf("registry = %q, want image entry only", registryData)
-	}
-
-	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var listOut bytes.Buffer
-	var listErr bytes.Buffer
-	code = Run([]string{"agents", "list"}, &listOut, &listErr)
-	if code != 0 {
-		t.Fatalf("list exit code = %d, stderr = %q", code, listErr.String())
-	}
-	if !strings.Contains(listOut.String(), "image-agent") || !strings.Contains(listOut.String(), "acme/triage:1.2") || !strings.Contains(listOut.String(), "-") {
-		t.Fatalf("list stdout = %q, want image entry with no agentfile", listOut.String())
-	}
-	if log := readCLILog(t, logPath); log != "" {
-		t.Fatalf("agents list called docker:\n%s", log)
-	}
-
-	selection, err := selectRunInput(runFlags{name: "image-agent"}, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if selection.Project != nil || selection.ImageRef != "acme/triage:1.2" || strings.Join(selection.RuntimeEnvNames, ",") != "GITHUB_TOKEN" || selection.HarnessName != "claudecode" {
-		t.Fatalf("selectRunInput = %#v, want image selection", selection)
-	}
-
-	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var overrideOut bytes.Buffer
-	var overrideErr bytes.Buffer
-	code = Run([]string{"run", "image-agent", "--prompt", "say hi", "--model", "gpt-5"}, &overrideOut, &overrideErr)
-	if code != 0 {
-		t.Fatalf("run override exit = %d, stderr = %q", code, overrideErr.String())
-	}
-	if args := readCLILog(t, logPath); !strings.Contains(args, "-e AGENTFILE_MODEL=gpt-5") || !strings.Contains(args, "-e AGENTFILE_PROMPT=say hi") {
-		t.Fatalf("docker log = %q, want prompt and model overrides", args)
-	}
-
-	t.Setenv("DOCKER_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "fail-once"))
-	var pullOut bytes.Buffer
-	var pullErr bytes.Buffer
-	code = Run([]string{"run", "image-agent"}, &pullOut, &pullErr)
-	if code != 0 {
-		t.Fatalf("run exit code = %d, stderr = %q", code, pullErr.String())
-	}
-	if !strings.Contains(pullErr.String(), "pulling acme/triage:1.2") {
-		t.Fatalf("run stderr = %q, want pull progress without --debug", pullErr.String())
-	}
-
-	t.Setenv("DOCKER_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "fail-once"))
-	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var missOut bytes.Buffer
-	var missErr bytes.Buffer
-	code = Run([]string{"agents", "register", "--image", "acme/other:1"}, &missOut, &missErr)
-	if code != 1 || !strings.Contains(missErr.String(), "docker pull the image first") {
-		t.Fatalf("register exit = %d, stderr = %q, want pull hint", code, missErr.String())
-	}
-	if strings.Contains(readCLILog(t, logPath), "pull ") {
-		t.Fatalf("register pulled the image:\n%s", readCLILog(t, logPath))
-	}
-}
-
-func TestRunImageAdHoc(t *testing.T) {
-	dockerPath, logPath := installCLIFakeDocker(t)
-	t.Setenv("PATH", filepath.Dir(dockerPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("GITHUB_TOKEN", "host-token")
-	workspace := t.TempDir()
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := Run([]string{
-		"run", "--image", "acme/triage:1.2",
-		"--prompt", "say hi", "--model", "gpt-5",
-		"--workspace", workspace, "--env", "EXTRA=value", "--env-auto",
-	}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("run exit code = %d, stderr = %q", code, stderr.String())
-	}
-	log := readCLILog(t, logPath)
-	for _, want := range []string{
-		"image inspect --format",
-		"-e AGENTFILE_MODEL=gpt-5",
-		"-e AGENTFILE_PROMPT=say hi",
-		"-e EXTRA=value",
-		"-e GITHUB_TOKEN=host-token",
-		"--mount type=bind,source=" + workspace + ",target=/agent/workspace",
-		"acme/triage:1.2",
-	} {
-		if !strings.Contains(log, want) {
-			t.Fatalf("docker log = %q, want %q", log, want)
-		}
-	}
-	if strings.Contains(log, " build ") {
-		t.Fatalf("ad hoc image run built an image:\n%s", log)
-	}
-}
-
-func TestRunOneShotShowsStderrOnlyOnFailure(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		exitCode string
-		debug    bool
-		wantErr  bool
-	}{
-		{name: "successful run"},
-		{name: "failed run", exitCode: "17", wantErr: true},
-		{name: "debug run", debug: true, wantErr: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			dockerPath, _ := installCLIFakeDocker(t)
-			t.Setenv("PATH", filepath.Dir(dockerPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
-			t.Setenv("DOCKER_AGENT_STDERR", "authentication failed")
-			t.Setenv("DOCKER_AGENT_EXIT", tt.exitCode)
-
-			args := []string{"run", "--image", "acme/triage:1.2", "--prompt", "say hi"}
-			if tt.debug {
-				args = append(args, "--debug")
-			}
-			var stdout bytes.Buffer
-			var stderr bytes.Buffer
-			code := Run(args, &stdout, &stderr)
-			if (code != 0) != (tt.exitCode != "") {
-				t.Fatalf("exit code = %d, configured exit = %q", code, tt.exitCode)
-			}
-			if got := strings.Contains(stderr.String(), "authentication failed"); got != tt.wantErr {
-				t.Fatalf("stderr = %q, contains authentication error = %t, want %t", stderr.String(), got, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestRegisterRejectsFileAndImage(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := Run([]string{"agents", "register", "--file", "agentfile.yaml", "--image", "acme/triage:1.2"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if !strings.Contains(stderr.String(), "--file and --image cannot be used together") {
-		t.Fatalf("stderr = %q, want --file/--image conflict", stderr.String())
-	}
-}
-
-func writeCLITestFile(t *testing.T, path string, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
+`
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return path
+}
+
+func buildCLIBundle(t *testing.T, name, version string) string {
+	t.Helper()
+	dir := t.TempDir()
+	project, err := agentfile.Load(writeCLIAgentfile(t, dir, name, version))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name+".tar.gz")
+	if err := bundle.Build(project, path); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func isolateCLIConfig(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("AppData", dir)
+}
+
+func registeredBundlePath(t *testing.T, name string) string {
+	t.Helper()
+	reg, err := registry.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg.Agents[name].Bundle
+}
+
+func registeredBundlePathDir(t *testing.T) string {
+	t.Helper()
+	path, err := registry.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(filepath.Dir(path), "bundles")
+}
+
+func installCLIFakeHarness(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codex")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho cli-harness\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func installCLIFakeDocker(t *testing.T) (string, string) {
 	t.Helper()
 	binDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "docker.log")
+	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	dockerPath := filepath.Join(binDir, "docker")
-	writeCLITestFile(t, dockerPath, `#!/bin/sh
+	script := `#!/bin/sh
 printf '%s\n' "$*" >> "$DOCKER_ARGS_LOG"
 if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
   if [ -n "${DOCKER_INSPECT_FAIL_ONCE:-}" ] && [ ! -f "$DOCKER_INSPECT_FAIL_ONCE" ]; then
-    touch "$DOCKER_INSPECT_FAIL_ONCE"
+    : > "$DOCKER_INSPECT_FAIL_ONCE"
     exit 1
   fi
-  cat <<'JSON'
-{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]","build.agentfile.harness":"claudecode"}
-JSON
+  if [ -n "${DOCKER_BAD_IMAGE:-}" ]; then
+    echo '{}'
+    exit 0
+  fi
+  printf '%s\n' '{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]","build.agentfile.harness":"codex","build.agentfile.bundle.digest":"sha256:0123456789abcdef"}'
   exit 0
 fi
 if [ "$1" = "pull" ]; then
   echo "pulling $2" >&2
+  exit 0
+fi
+if [ "$1" = "build" ]; then
+  for last do :; done
+  IFS= read -r first < "$last/Dockerfile"
+  printf '%s\n' "$first" >> "$DOCKER_ARGS_LOG"
   exit 0
 fi
 if [ "$1" = "run" ]; then
@@ -600,17 +557,17 @@ if [ "$1" = "run" ]; then
   fi
 fi
 exit 0
-`)
-	if err := os.Chmod(dockerPath, 0o755); err != nil {
+`
+	if err := os.WriteFile(dockerPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("DOCKER_ARGS_LOG", logPath)
 	return dockerPath, logPath
 }
 
-func readCLILog(t *testing.T, logPath string) string {
+func readCLILog(t *testing.T, path string) string {
 	t.Helper()
-	data, err := os.ReadFile(logPath)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}

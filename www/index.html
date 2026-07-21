@@ -17,7 +17,7 @@
       <nav aria-label="Main navigation">
         <a href="#use-cases">Use cases</a>
         <a href="https://github.com/itaysk/agentfile/blob/main/docs/tutorial.md">Tutorial</a>
-        <a href="https://github.com/itaysk/agentfile/blob/main/docs/reference/reference.md">Docs</a>
+        <a href="https://github.com/itaysk/agentfile/blob/main/docs/manual.md">Docs</a>
       </nav>
       <a class="header-cta" href="https://github.com/itaysk/agentfile/">GitHub ↗</a>
     </header>
@@ -145,9 +145,9 @@ mcps:
                 <a href="https://github.com/itaysk/agentfile/blob/main/docs/use-cases.md#automate">Read more →</a>
               </div>
               <div class="case-example">
-                <pre><code>tail logfile.jsonl | af run log-triage
-cd documents &amp;&amp; af run grammar-checker --workspace .
-cron "0 0 * * *" "af run daily-standup"</code></pre>
+                <pre><code>tail logfile.jsonl | af run --name log-triage
+cd documents &amp;&amp; af run --name grammar-checker --workspace .
+cron "0 0 * * *" "af run --name daily-standup"</code></pre>
               </div>
             </article>
 
@@ -167,11 +167,12 @@ cron "0 0 * * *" "af run daily-standup"</code></pre>
             <article class="case-panel panel-operationalize">
               <div class="case-copy">
                 <h3>Deploy agents on your terms.</h3>
-                <p>Build Agents as standard container images. Deploy anywhere - your cloud, on-premises Kubernetes, GitHub Actions, or workflow engines.</p>
+                <p>Build agents as standard container images. Deploy anywhere — your cloud, on-premises Kubernetes, GitHub Actions, or workflow engines.</p>
                 <a href="https://github.com/itaysk/agentfile/blob/main/docs/use-cases.md#operationalize">Read more →</a>
               </div>
               <div class="case-example">
-                <pre><code>af build -f myagent.yaml --tag my-agent:latest
+                <pre><code>af build --file myagent.yaml --output my-agent.tar.gz
+af image build --bundle my-agent.tar.gz --tag my-agent:latest
 docker push my-agent:latest
 kubectl run my-agent --image=my-agent:latest</code></pre>
               </div>

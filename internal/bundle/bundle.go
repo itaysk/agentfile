@@ -66,7 +66,7 @@ type Unpacked struct {
 // DefaultFilename returns a portable bundle filename derived from agent metadata.
 func DefaultFilename(metadata agentfile.Metadata) string {
 	clean := strings.NewReplacer("/", "-", "\\", "-").Replace
-	return clean(metadata.Name) + "-" + clean(metadata.Version) + ".tar.gz"
+	return clean(metadata.Name) + "__" + clean(metadata.Version) + ".tar.gz"
 }
 
 // Build writes project to bundlePath as a reproducible agent bundle.

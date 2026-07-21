@@ -2,7 +2,7 @@
 
 This document defines the normative mapping between a bundle manifest and each supported harness.
 
-The [reference manual](reference.md) defines the source agentfile schema, defaults, and discovery rules.
+The [agentfile specification](agentfile.md) defines the source schema, defaults, and discovery rules.
 
 The [bundle format](bundle.md) defines bundle assets and relocatable templates.
 
@@ -201,7 +201,7 @@ Credential values must not be persisted outside the private harness profile.
 
 | Harness | Mapping |
 | --- | --- |
-| Claude Code | Add `--dangerously-skip-permissions`. The [image entrypoint](entrypoint.md) sets `IS_SANDBOX=1`; `runa` does not. |
+| Claude Code | Add `--dangerously-skip-permissions`. The [image entrypoint](entrypoint.md) sets `IS_SANDBOX=1`; the host bundle runtime does not. |
 | Codex | Add `--dangerously-bypass-approvals-and-sandbox`. |
 | Pi | No permission flag. |
 

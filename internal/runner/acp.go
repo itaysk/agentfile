@@ -16,6 +16,9 @@ import (
 	"sync"
 
 	"github.com/coder/acp-go-sdk"
+	"github.com/itaysk/agentfile/internal/bundle"
+	"github.com/itaysk/agentfile/internal/harness"
+	"github.com/itaysk/agentfile/internal/runa"
 )
 
 const harnessMessageLimit = 16 << 20
@@ -24,6 +27,9 @@ type acpBridge struct {
 	ctx         context.Context
 	options     Options
 	imageRef    string
+	unpacked    *bundle.Unpacked
+	bundleEnv   map[string]string
+	bundleTemp  string
 	harnessName string
 	conn        *acp.AgentSideConnection
 	ready       chan struct{}
@@ -33,17 +39,18 @@ type acpBridge struct {
 }
 
 type acpSession struct {
-	bridge    *acpBridge
-	id        acp.SessionId
-	container string
-	workspace string
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	scanner   *bufio.Scanner
-	stderr    *prefixBuffer
-	done      chan error
-	threadID  string
-	turnID    string
+	bridge         *acpBridge
+	id             acp.SessionId
+	container      string
+	workspace      string
+	agentWorkspace string
+	cmd            *exec.Cmd
+	stdin          io.WriteCloser
+	scanner        *bufio.Scanner
+	stderr         *prefixBuffer
+	done           chan error
+	threadID       string
+	turnID         string
 
 	writeMu sync.Mutex
 	mu      sync.Mutex
@@ -83,8 +90,40 @@ func runACP(ctx context.Context, options Options) (int, error) {
 		return 1, fmt.Errorf("--workspace cannot be used with --acp; the ACP client supplies the workspace")
 	}
 	harnessName := options.HarnessName
-	if options.Project != nil {
-		harnessName = options.Project.AgentFile.Spec.Harness.Name()
+	imageRef := ""
+	var unpacked *bundle.Unpacked
+	var bundleEnv map[string]string
+	var bundleTemp string
+	if options.BundlePath != "" {
+		warning := options.WarningStderr
+		if warning == nil {
+			warning = options.Stderr
+		}
+		fmt.Fprintln(warning, runa.Warning)
+		var err error
+		bundleTemp, err = os.MkdirTemp("", "agentfile-runa-acp-*")
+		if err != nil {
+			return 1, err
+		}
+		defer os.RemoveAll(bundleTemp)
+		unpacked, err = bundle.Extract(options.BundlePath, filepath.Join(bundleTemp, "bundle"))
+		if err != nil {
+			return 1, err
+		}
+		bundleEnv, err = runa.InvocationEnv(options.EnvFiles, options.Env)
+		if err != nil {
+			return 1, err
+		}
+		harnessName = unpacked.Manifest.Harness
+	} else {
+		if options.Project != nil {
+			harnessName = options.Project.AgentFile.Spec.Harness.Name()
+		}
+		var err error
+		imageRef, err = selectOrBuildImage(ctx, options)
+		if err != nil {
+			return 1, err
+		}
 	}
 	if harnessName == "" {
 		return 1, fmt.Errorf("image %q is missing required build.agentfile.harness label", options.ImageRef)
@@ -92,14 +131,13 @@ func runACP(ctx context.Context, options Options) (int, error) {
 	if harnessName != "claudecode" && harnessName != "codex" && harnessName != "pi" {
 		return 1, fmt.Errorf("--acp does not support harness %s", harnessName)
 	}
-	imageRef, err := selectOrBuildImage(ctx, options)
-	if err != nil {
-		return 1, err
-	}
 	bridge := &acpBridge{
 		ctx:         ctx,
 		options:     options,
 		imageRef:    imageRef,
+		unpacked:    unpacked,
+		bundleEnv:   bundleEnv,
+		bundleTemp:  bundleTemp,
 		harnessName: harnessName,
 		ready:       make(chan struct{}),
 		sessions:    map[acp.SessionId]*acpSession{},
@@ -168,7 +206,7 @@ func (a *acpBridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.P
 		case block.Text != nil:
 			content = append(content, map[string]any{"type": "text", "text": block.Text.Text})
 		case block.ResourceLink != nil:
-			text := resourceLinkText(block.ResourceLink, s.workspace)
+			text := resourceLinkText(block.ResourceLink, s.workspace, s.agentWorkspace)
 			content = append(content, map[string]any{"type": "text", "text": text})
 		default:
 			return acp.PromptResponse{}, acp.NewInvalidParams(map[string]any{"error": "only text and resource_link prompt blocks are supported"})
@@ -252,6 +290,13 @@ func (a *acpBridge) SetSessionMode(context.Context, acp.SetSessionModeRequest) (
 }
 
 func (a *acpBridge) startSession(id acp.SessionId, workspace string) (*acpSession, error) {
+	if a.unpacked != nil {
+		return a.startBundleSession(id, workspace)
+	}
+	return a.startImageSession(id, workspace)
+}
+
+func (a *acpBridge) startImageSession(id acp.SessionId, workspace string) (*acpSession, error) {
 	env := dockerEnv(a.options.RuntimeEnvNames, a.options.Env, a.options.InheritRuntimeEnv)
 	if len(a.options.RuntimeEnvNames) == 0 && a.options.Project != nil {
 		env = dockerEnv(a.options.Project.AgentFile.Spec.RuntimeEnvNames(), a.options.Env, a.options.InheritRuntimeEnv)
@@ -265,29 +310,54 @@ func (a *acpBridge) startSession(id acp.SessionId, workspace string) (*acpSessio
 	args = appendDockerEnv(args, a.options.EnvFiles, env)
 	args = append(args, "--mount", "type=bind,source="+workspace+",target=/agent/workspace", a.imageRef)
 	cmd := exec.CommandContext(a.ctx, a.options.DockerBinary, args...)
+	return a.startProcess(id, workspace, "/agent/workspace", container, cmd)
+}
+
+func (a *acpBridge) startBundleSession(id acp.SessionId, workspace string) (*acpSession, error) {
+	agentWorkspace, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+	command, err := harness.Prepare(a.unpacked, filepath.Join(a.bundleTemp, "sessions", string(id)), harness.Invocation{
+		Mode:      harness.ModeACP,
+		Workspace: agentWorkspace,
+		Model:     a.options.Model,
+		Env:       a.bundleEnv,
+	})
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(a.ctx, command.Executable, command.Args...)
+	cmd.Dir = command.Dir
+	cmd.Env = runa.EnvList(command.Env)
+	return a.startProcess(id, workspace, agentWorkspace, "", cmd)
+}
+
+func (a *acpBridge) startProcess(id acp.SessionId, workspace, agentWorkspace, container string, cmd *exec.Cmd) (*acpSession, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, fmt.Errorf("open container stdin: %w", err)
+		return nil, fmt.Errorf("open ACP harness stdin: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("open container stdout: %w", err)
+		return nil, fmt.Errorf("open ACP harness stdout: %w", err)
 	}
 	stderr := &prefixBuffer{}
 	cmd.Stderr = io.MultiWriter(a.options.Stderr, stderr)
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start ACP container: %w", err)
+		return nil, fmt.Errorf("start ACP harness: %w", err)
 	}
 	s := &acpSession{
-		bridge:    a,
-		id:        id,
-		container: container,
-		workspace: workspace,
-		cmd:       cmd,
-		stdin:     stdin,
-		scanner:   bufio.NewScanner(stdout),
-		stderr:    stderr,
-		done:      make(chan error, 1),
+		bridge:         a,
+		id:             id,
+		container:      container,
+		workspace:      workspace,
+		agentWorkspace: agentWorkspace,
+		cmd:            cmd,
+		stdin:          stdin,
+		scanner:        bufio.NewScanner(stdout),
+		stderr:         stderr,
+		done:           make(chan error, 1),
 	}
 	s.scanner.Buffer(make([]byte, 64<<10), harnessMessageLimit)
 	go func() { s.done <- cmd.Wait() }()
@@ -349,7 +419,7 @@ func (s *acpSession) initializeCodex() error {
 		return err
 	}
 	result, err := s.request("thread/start", map[string]any{
-		"cwd": "/agent/workspace", "ephemeral": true,
+		"cwd": s.agentWorkspace, "ephemeral": true,
 	})
 	if err != nil {
 		return fmt.Errorf("Codex thread start failed: %w", err)
@@ -823,11 +893,11 @@ func (s *acpSession) read() (map[string]any, error) {
 		err := <-s.done
 		if err != nil {
 			if stderr := strings.TrimSpace(s.stderr.String()); stderr != "" {
-				return nil, fmt.Errorf("ACP container exited: %w: %s", err, stderr)
+				return nil, fmt.Errorf("ACP harness exited: %w: %s", err, stderr)
 			}
-			return nil, fmt.Errorf("ACP container exited: %w", err)
+			return nil, fmt.Errorf("ACP harness exited: %w", err)
 		}
-		return nil, fmt.Errorf("ACP container exited")
+		return nil, fmt.Errorf("ACP harness exited")
 	}
 	var message map[string]any
 	if err := json.Unmarshal(s.scanner.Bytes(), &message); err != nil {
@@ -836,11 +906,11 @@ func (s *acpSession) read() (map[string]any, error) {
 	return message, nil
 }
 
-func resourceLinkText(link *acp.ContentBlockResourceLink, workspace string) string {
+func resourceLinkText(link *acp.ContentBlockResourceLink, workspace, agentWorkspace string) string {
 	reference := link.Uri
 	if uri, err := url.Parse(link.Uri); err == nil && uri.Scheme == "file" && (uri.Host == "" || uri.Host == "localhost") {
 		if relative, err := filepath.Rel(workspace, uri.Path); err == nil && filepath.IsLocal(relative) {
-			reference = filepath.ToSlash(filepath.Join("/agent/workspace", relative))
+			reference = filepath.ToSlash(filepath.Join(agentWorkspace, relative))
 		}
 	}
 	return fmt.Sprintf("The user referenced resource %q at %s.", link.Name, reference)
@@ -850,6 +920,12 @@ func (s *acpSession) close() {
 	s.stop.Do(func() {
 		_ = s.interrupt()
 		_ = s.stdin.Close()
+		if s.container == "" {
+			if s.cmd.Process != nil {
+				_ = s.cmd.Process.Kill()
+			}
+			return
+		}
 		remove := exec.Command(s.bridge.options.DockerBinary, "rm", "-f", s.container)
 		remove.Stdout = io.Discard
 		remove.Stderr = s.bridge.options.Stderr

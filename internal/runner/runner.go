@@ -77,7 +77,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if options.Env == nil {
 		options.Env = map[string]string{}
 	}
-	if options.BundlePath != "" {
+	if options.BundlePath != "" && options.Mode != harness.ModeACP {
 		return runBundle(ctx, options)
 	}
 	switch options.Mode {
@@ -91,9 +91,6 @@ func Run(ctx context.Context, options Options) (int, error) {
 }
 
 func runBundle(ctx context.Context, options Options) (int, error) {
-	if options.Mode == harness.ModeACP {
-		return 1, fmt.Errorf("--acp is not supported with --bundle")
-	}
 	if options.Mode == harness.ModeTUI && options.Prompt != nil {
 		return 1, fmt.Errorf("--prompt cannot be used with --tui")
 	}
@@ -265,6 +262,7 @@ type ImageInfo struct {
 	Metadata        agentfile.Metadata
 	RuntimeEnvNames []string
 	HarnessName     string
+	BundleDigest    string
 }
 
 // ReadImageInfo reads agentfile metadata from a local image.
@@ -300,6 +298,10 @@ func ReadImageInfo(ctx context.Context, dockerBinary, ref string) (*ImageInfo, e
 	info.HarnessName = labels[imagepkg.HarnessLabel]
 	if info.HarnessName == "" {
 		return nil, fmt.Errorf("image %q was not built by agentfile (missing %s label)", ref, imagepkg.HarnessLabel)
+	}
+	info.BundleDigest = labels[imagepkg.BundleDigestLabel]
+	if info.BundleDigest == "" {
+		return nil, fmt.Errorf("image %q was not built by agentfile (missing %s label)", ref, imagepkg.BundleDigestLabel)
 	}
 	return &info, nil
 }

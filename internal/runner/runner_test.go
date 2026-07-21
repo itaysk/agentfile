@@ -319,6 +319,9 @@ func TestReadImageInfoReadsLabelsWithoutPulling(t *testing.T) {
 	if info.HarnessName != "claudecode" {
 		t.Fatalf("harness = %q, want claudecode", info.HarnessName)
 	}
+	if info.BundleDigest != "sha256:0123456789abcdef" {
+		t.Fatalf("bundle digest = %q", info.BundleDigest)
+	}
 
 	t.Setenv("DOCKER_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "fail-once"))
 	if _, err := ReadImageInfo(context.Background(), dockerPath, "acme/triage:1.2"); err == nil {
@@ -360,6 +363,16 @@ func TestReadImageInfoRejectsMissingHarnessLabel(t *testing.T) {
 
 	_, err := ReadImageInfo(context.Background(), dockerPath, "acme/invalid:1")
 	if err == nil || !strings.Contains(err.Error(), "missing build.agentfile.harness label") {
+		t.Fatalf("ReadImageInfo error = %v", err)
+	}
+}
+
+func TestReadImageInfoRejectsMissingBundleDigestLabel(t *testing.T) {
+	dockerPath, _ := installFakeDocker(t)
+	t.Setenv("DOCKER_MISSING_DIGEST_LABEL", "1")
+
+	_, err := ReadImageInfo(context.Background(), dockerPath, "acme/invalid:1")
+	if err == nil || !strings.Contains(err.Error(), "missing build.agentfile.bundle.digest label") {
 		t.Fatalf("ReadImageInfo error = %v", err)
 	}
 }
@@ -432,11 +445,15 @@ if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
     exit 0
   fi
   if [ "${DOCKER_MISSING_HARNESS_LABEL:-}" = "1" ]; then
-    echo '{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]"}'
+    echo '{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]","build.agentfile.bundle.digest":"sha256:0123456789abcdef"}'
+    exit 0
+  fi
+  if [ "${DOCKER_MISSING_DIGEST_LABEL:-}" = "1" ]; then
+    echo '{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]","build.agentfile.harness":"claudecode"}'
     exit 0
   fi
   cat <<'JSON'
-{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]","build.agentfile.harness":"claudecode"}
+{"build.agentfile.metadata":"{\"name\":\"image-agent\",\"version\":\"latest\"}","build.agentfile.runtimeEnv":"[\"GITHUB_TOKEN\"]","build.agentfile.harness":"claudecode","build.agentfile.bundle.digest":"sha256:0123456789abcdef"}
 JSON
   exit 0
 fi

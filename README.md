@@ -4,9 +4,9 @@ What is Agentfile?
 
 Agentfile helps you build custom and portable agents.
 
-- No code, declarative agents - Driven by Markdown and YAML and managed in git.  
-- Bring your own harness - Claude, Codex, Pi, and more.  
-- Deploy anywhere - Locally, in cloud, Kubernetes, or CI/CD.
+- No-code, declarative agents — driven by Markdown and YAML and managed in Git.
+- Bring your own harness — Claude, Codex, Pi, and more.
+- Deploy anywhere — locally, in the cloud, Kubernetes, or CI/CD.
 
 What can you do with Agentfile?
 
@@ -18,6 +18,10 @@ What can you do with Agentfile?
 Start with a minimal agentfile:
 
 ```yaml
+apiVersion: agentfile.build/v1
+kind: Agent
+metadata:
+  name: my-agent
 spec:
   harness:
     claudecode: {}
@@ -26,11 +30,11 @@ spec:
       model: claude-haiku-4-5
 ```
 
-Grow it to add Skills, MCPs, Custom tools, and more:
+Grow it to add skills, MCP servers, custom tools, and more:
 
 ```yaml
 spec:
-  system prompt:
+  systemPrompt:
     git:
       url: https://github.com/itaysk/agentfile//docs/examples/test-sys-prompt.md
   skills:
@@ -45,26 +49,24 @@ spec:
 Build it, run it, ship it:
 
 ```sh
-# run an agentfile
-af run -f myagent.yaml
-# run it with a host-installed harness (unsandboxed)
-af run -f myagent.yaml --host --workspace .
-# build a portable bundle
-af build --target bundle -f myagent.yaml --output my-agent.tar.gz
-# build it to an image
-af build --target image --bundle my-agent.tar.gz --tag itaysk/my-agent:latest
-# it's a regular container image
+# build and run a bundle
+af build --file myagent.yaml --output my-agent.tar.gz
+af run --bundle my-agent.tar.gz
+# package and run it as an image
+af image build --bundle my-agent.tar.gz --tag itaysk/my-agent:latest
+af run --image itaysk/my-agent:latest
+# push the regular container image
 docker push itaysk/my-agent:latest
-# deploy it to Kuberntes or any container platform
+# deploy it to Kubernetes or any container platform
 kubectl run my-agent --image=itaysk/my-agent:latest
 ```
 
 Have fun with it:
 
 ```sh
-tail logfile.jsonl | af run log-triage
-cd documents && af run grammar-checker --workspace .
-cron "0 0 * * *" "af run daily-standup"
+tail logfile.jsonl | af run --name log-triage
+cd documents && af run --name grammar-checker --workspace .
+cron "0 0 * * *" "af run --name daily-standup"
 ```
 
 ## Getting started
@@ -73,4 +75,4 @@ cron "0 0 * * *" "af run daily-standup"
 - [Tutorial](./docs/tutorial.md)
 - [Use cases](./docs/use-cases.md)
 - [Examples](./docs/examples)
-- [Reference documentation](./docs/reference/reference.md)
+- [Product manual](./docs/manual.md)

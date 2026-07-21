@@ -276,7 +276,7 @@ func TestValidateManifestAndUnpacked(t *testing.T) {
 
 func TestDefaultFilenameSanitizesMetadata(t *testing.T) {
 	got := DefaultFilename(agentfile.Metadata{Name: `team/reviewer`, Version: `v1\beta`})
-	if got != "team-reviewer-v1-beta.tar.gz" {
+	if got != "team-reviewer__v1-beta.tar.gz" {
 		t.Fatalf("DefaultFilename = %q", got)
 	}
 }

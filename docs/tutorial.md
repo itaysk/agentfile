@@ -1,21 +1,21 @@
-# Agentfile Introduction
+# Introduction to Agentfile
 
 Agentfile helps you build custom and portable agents.
 
-- No code, declarative agents - Driven by Markdown and YAML and managed in git.  
-- Bring your own harness - Claude, Codex, Pi, and more.  
-- Deploy anywhere - Locally, in cloud, Kubernetes, or CI/CD.
+- No-code, declarative agents — driven by Markdown and YAML and managed in Git.
+- Bring your own harness — Claude, Codex, Pi, and more.
+- Deploy anywhere — locally, in the cloud, Kubernetes, or CI/CD.
 
-This is a tutorial that walks you through basic concepts of Agentfile. For the full reference manual see [here](./reference/reference.md).  
-If you want to follow along, make sure you [install Agentfile](./install.md) first.
+This tutorial walks through the basic concepts of Agentfile. See the [product manual](./manual.md) for the complete workflow.
+To follow along, [install Agentfile](./install.md) first.
 
-Let's get started.
+Let's get started >>
 
 ---
 
 ## Hello World
 
-Let's create a basic "Hello World" agent by creating an agentfile:
+Let's create a basic "Hello World" agent. Create a YAML file named `agentfile.yaml`:
 
 ```yaml source=/docs/examples/hello-world/agentfile1.yaml
 apiVersion: agentfile.build/v1
@@ -33,46 +33,55 @@ spec:
       say hi!
 ```
 
-We've created an agent! Notice that we've given it a name, selected its model and harness, and gave it its task.
+We gave the agent a name, selected its model and harness, and assigned its task.
 
-We can build this agent as a portable bundle without Docker:
-
-```bash
-af build --target bundle -f agentfile.yaml --output hello-world.tar.gz
-```
-
-The bundle contains its manifest and materialized assets, not Claude Code itself. We can also build the default runnable container image:
+We can now build this agent:
 
 ```bash
-af build --target image -f agentfile.yaml
-docker images | grep 'hello-world'
+af build --file agentfile.yaml
+# Built hello-world__latest.tar.gz
 ```
 
-To run it, you only need to provide your LLM provider credentials:
+We've created an agent bundle. A bundle is a simple packaging of agent's skills, tools, prompts and environment.  
+Bundles are portable, you can run a bundle on another host as long as the required harness is installed (the bundle does not install anything on the host).
+If you're a developer looking to integrate agentfile into other products or workflows, see the [bundle format specification](reference/bundle.md) and the [bundle runtime specification](reference/runa.md).
+
+To run a bundle, you only need to provide LLM credentials. See the [authentication documentation](./manual.md#authentication) for details.
+
+```bash
+export ANTHROPIC_API_KEY='ant-...'
+af run --bundle hello-world__latest.tar.gz
+# Hi!
+```
+
+Notice that we're not "chatting" with the agent. By specifying a `prompt`, we've predefined the agent's task, and thus created a [one-shot agent](./use-cases.md#automate). Running it resembles running an executable binary or script in that it will perform its task and exit, without requiring our input.
+
+If you are going to deploy your agents in production, automation, or cloud, it is useful to package them as container images:
+
+```bash
+af image build --bundle hello-world__latest.tar.gz --tag hello-world:latest
+# Built hello-world:latest
+```
+
+Unlike the agent bundle we've created before, the agent image has the harness and required tools baked into the image. You can push and deploy it anywhere that can run container images:
 
 ```bash
 export ANTHROPIC_API_KEY='ant-...'
 docker run -e ANTHROPIC_API_KEY hello-world:latest
-```
 
-Notice that by including a `prompt`, we've defined the agent's task, and thus created a [one-shot agent](./use-cases.md#automate). Running it resembles running a script or an executable binary - it will perform its task and exit, without requiring our input. This is useful in scripts and automations.
-
-You can handle the agent image like any other container image:
-
-```bash
 docker tag hello-world:latest itaysk/hello-world:latest
 docker push itaysk/hello-world:latest
 kubectl run hello-world --image itaysk/hello-world:latest --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 ```
 
-In the example, the prompt was defined inside the agentfile definition. In a real project it would often be managed in a dedicated file or a remote location. Let's see how Agentfile helps facilitate this.
+In the example, the prompt was defined inside the agentfile. In a real project, it would often be managed in a dedicated file or a remote location. Let's see how Agentfile supports this.
 
 ---
 
 ## Asset Sources
 
 Agent development involves writing a lot of Markdown: prompts, system prompts, context, skills, and related assets that together define an agent.
-So far we've seen our prompt asset defined inside the agentfile, but assets can be sourced from different places, and Agentfile lets you mix them effortlessly.
+So far, our prompt asset has been defined inside the agentfile. Assets can also come from different sources, and Agentfile lets you mix them.
 
 Consider the following project structure:
 
@@ -108,12 +117,12 @@ spec:
         path: skills/world-greetings
 ```
 
-Notice that we've added a skill to our agent, and we source it from the conventional skills directory structure, as indicated by the `fs` (filesystem) source.  
-Also notice we've added a system prompt to our agent, and we source it from a remote repository, as indicated by the `git` source.
+We added a skill from the conventional skills directory structure, as indicated by the `fs` (filesystem) source.
+We also added a system prompt from a remote repository, as indicated by the `git` source.
 
 When you build this agent, assets are gathered and assembled automatically.
 
-Real-world agents can be Markdown-heavy, with many files that make up the agent. Listing every single file in the agentfile would be painful, but luckily that's not required.  
+Real-world agents can be Markdown-heavy, with many files that make up the agent. You do not need to list every file in the agentfile.
 Common fields such as prompt, system prompt, and skills are discovered automatically from conventional file names.
 
 ```
@@ -137,10 +146,10 @@ spec:
       model: claude-haiku-4-5
 ```
 
-Notice that we've omitted the `skills` field and just let it be discovered under the conventional `skills` directory.  
-Similarly, we've removed the `prompt` field and converted it to a file `prompt.md`.
+We omitted the `skills` field and let Agentfile discover it under the conventional `skills` directory.
+Similarly, we removed the `prompt` field and moved its content to `prompt.md`.
 
-When you build the agent, auto-discovered assets and explicitly defined assets are merged together to form the complete agentfile.
+When you build the agent, auto-discovered and explicitly defined assets are merged into the bundle.
 
 Asset sources can have different parameters that let you specifically control the source. For example:
 
@@ -161,7 +170,7 @@ http:
   archive: true # extract the downloaded asset
 ```
 
-For a complete reference of all sources and their configuration parameters, see [Sources Reference](./reference/reference.md#sources).
+For a complete reference of all sources and their configuration parameters, see the [agentfile sources specification](./reference/agentfile.md#sources).
 
 While Markdown assets define the core of the agent's behavior, the agent might need access to additional tools.
 
@@ -169,49 +178,9 @@ While Markdown assets define the core of the agent's behavior, the agent might n
 
 ## Tools
 
-When you build an agent image, its bundle's `harness` selects the default base image. For example, `harness: claudecode` uses `itaysk/claudecode:latest`. The default image names are listed in the [Harness reference](./reference/reference.md#harness).
+When running an agent bundle on another machine, you should ensure the required CLI and MCP tools are installed and configured. The agent bundle does not install anything on the host machine. 
 
-You can extend the default base image to include anything else your agent might need. Create a custom image:
-
-```Dockerfile source=/docs/examples/hello-world-image/Dockerfile1
-FROM itaysk/claudecode:latest
-
-ADD --unpack https://github.com/Code-Hex/Neo-cowsay/releases/download/v2.0.4/cowsay_2.0.4_Linux_arm64.tar.gz /usr/local/bin
-```
-
-Notice we started "from" the default Claude Code base image, meaning we're extending it. We've installed a custom binary which our agent can now use.
-
-Build and tag this base image as `cc-cowsay:latest`, then select it when building the agent image:
-
-```yaml source=/docs/examples/hello-world-image/agentfile1.yaml
-apiVersion: agentfile.build/v1
-kind: Agent
-metadata:
-  name: hello-world-cowsay
-spec:
-  harness:
-    claudecode: {}
-  llm:
-    anthropic:
-      model: claude-haiku-4-5
-  prompt:
-    text: |
-      use the `cowsay` command to say hi!
-```
-
-```bash
-af build --target image --file agentfile1.yaml --base-image cc-cowsay:latest
-```
-
-CLI tools are straightforward for agents to use, but MCP servers require additional setup to register with the agent harness.  
-Install an MCP server in your base image, and declare it in the agentfile:
-
-```Dockerfile source=/docs/examples/hello-world-image/Dockerfile2
-FROM itaysk/claudecode:latest
-
-RUN apk update && apk add --no-cache uv
-RUN uv tool install mcp-server-time
-```
+If the agent needs an MCP server, you can declare it in the agentfile:
 
 ```yaml source=/docs/examples/hello-world-image/agentfile2.yaml
 apiVersion: agentfile.build/v1
@@ -233,20 +202,36 @@ spec:
         command: ["uv", "tool", "run", "mcp-server-time"]
 ```
 
-```bash
-af build --target image --file agentfile2.yaml --base-image cc-time:latest
+For more details about MCP, see the [agentfile MCP specification](./reference/agentfile.md#mcp-servers).
+
+When using agent images, all MCP and CLI tools should be available in the container image. You can build a base image with your tools and use it when packaging the agent image:
+
+```Dockerfile source=/docs/examples/hello-world-image/Dockerfile2
+FROM itaysk/claudecode:latest
+
+RUN apk update && apk add --no-cache uv
+RUN uv tool install mcp-server-time
 ```
 
-Notice the Dockerfile installed the MCP server into the agent image, and the agentfile registered it with the harness (Claude Code in this case).
+We started from the Claude Code base image, which already includes the harness, and installed the MCP server the agent will use.
+
+```bash
+docker build --tag cc-time:latest .
+af build --file agentfile.yaml
+# Built hello-world-time__latest.tar.gz
+af image build --bundle hello-world-time__latest.tar.gz --base-image cc-time:latest --tag hello-world-time:latest
+# Built hello-world-time:latest
+docker run -e ANTHROPIC_API_KEY hello-world-time:latest
+# Good Morning!
+```
 
 ---
 
 ## Workspace
 
-The agent's "workspace" is its working directory for work-in-progress, state, and artifacts.
+The agent's workspace is its working directory for work in progress, state, and artifacts.
 
-An agent image uses `/agent/workspace`; `runa` uses the selected host path directly.
-Select an existing directory when the agent needs input from it or when you want to retain its output.
+When running an agent, Agentfile creates a new ephemeral workspace by default. Select an existing directory with `--workspace` when the agent needs existing input or when you want its output to persist.
 
 ```yaml source=/docs/examples/hello-world-workspace/agentfile1.yaml
 apiVersion: agentfile.build/v1
@@ -270,70 +255,54 @@ spec:
 Notice the agent expects an input in the workspace, and will produce an artifact in the workspace that you can later review.
 
 ```bash
-mkdir /tmp/greetings && cd /tmp/greetings
-echo 'itay' > ./name
-docker run --rm -v /tmp/greetings:/agent/workspace hello-world:latest
-unzip -p ./greeting.zip # print the contents of the zip
+af build --file agentfile.yaml
+# Built hello-world-zip__latest.tar.gz
+mkdir /tmp/greetings
+echo 'itay' > /tmp/greetings/name
+af run --bundle hello-world-zip__latest.tar.gz --workspace /tmp/greetings
+# Created greeting.zip
+unzip -p /tmp/greetings/greeting.zip
+# Hi Itay!
+af image build --bundle hello-world-zip__latest.tar.gz --tag hello-world-zip:latest
+# Built hello-world-zip:latest
+docker run --rm -e ANTHROPIC_API_KEY -v /tmp/greetings:/agent/workspace hello-world-zip:latest
 ```
-
-So far we've built the agent image and ran it as a regular container. While that's useful for deploying agents, running agents with the CLI runner has some additional benefits.
 
 ---
 
 ## Run CLI
 
-Use the `run` command to shorten long docker commands and register agents for repeatable execution:
+The `af` CLI has 3 main entities:
+
+- `af bundle` - for building and running agent bundles
+- `af image` - for building and running agent images
+- `af agents` - for registring and running named agents
+
+`af run --bundle / --image  / --name` is a shortcut to the respective full command. `af build` is a shortcut for a bundle build. See [Run an agent](./manual.md#run-an-agent) for details.
+
+You can run agent images and quickly bind the workspace:
 
 ```bash
-af run --file agentfile.yaml # build & run in one go
-af run --image hello-world:latest # run a built agent
-af agents register -f agentfile.yaml # register an agent in the system
-af run hello-world # run registered agent by name
+af image run --image hello-world-zip:latest --workspace /tmp/greetings
+# Created greeting.zip
 ```
 
-For a fast development loop, run the bundle with a harness already installed on your host:
+You can register agents, give them a friendly name, and run them from anywhere:
 
 ```bash
-export ANTHROPIC_API_KEY='ant-...'
-af run --file agentfile.yaml --host --workspace .
-af run --bundle hello-world.tar.gz --workspace .
+af agents register --name hello-world --bundle /path/to/hello-world__latest.tar.gz
+# Registered hello-world
+af run --name hello-world
+# Hi!
+af agents register --name hello-world-zip --image hello-world-zip:latest
+# Registered hello-world-zip
+af run --name hello-world-zip --ws /tmp/greetings
+# Created greeting.zip
 ```
 
-`runa` is deliberately unsandboxed.
+You can quickly set environment variables for the agent:
 
-It launches the harness as your user with permission gates disabled, so use it only for trusted agentfiles, bundles, and workspaces.
-
-Agentfile creates a temporary harness profile and does not merge your global harness configuration.
-
-The harness and any declared MCP commands or tools must already be installed on the host. Every `runa` invocation prints a warning.
-
-Docker remains the default for source agentfiles and is the right choice when you need an isolation boundary or packaged operating-system tools.
-
-`runa` does not support ACP sessions; use an agent image for `--acp`.
-
-You can override some agentfile fields for one invocation. This lets you reuse agents as templates:
-
-```bash
-af run hello-world --prompt "say something else"
-af run hello-world --model "claude-sonnet-4-5"
-```
-
-The `run` command can also facilitate invocation setup.
-
-For example, the `--workspace` flag selects a host directory.
-
-Docker bind-mounts it; `runa` uses it directly. Use `--ws` as a shorter alias.
-
-```bash
-af run hello-world --workspace /tmp/greetings
-git checkout fix-bug && af run hello-world --ws .
-```
-
-This pattern is especially useful when different agents contribute to the same directory. For example, a planner agent, coder agent, reviewer agent, all collaborating on the same code repository.
-
-Another example, the `run` command lets you quickly set environment varialbes for the agent. The `--env` flag lets you set or export a variable for the agent. In addition, if agent declared its required environment variables, then the `--env-auto` flag will export them automatically from the host.
-
-```source=/docs/examples/hello-world/agentfile2.yaml
+```yaml source=/docs/examples/hello-world/agentfile2.yaml
 apiVersion: agentfile.build/v1
 kind: Agent
 metadata:
@@ -353,26 +322,39 @@ spec:
         name: CLAUDE_CODE_OAUTH_TOKEN
 ```
 
-```sh
-af run hello-world --env-auto --env LOGNAME
+```bash
+af build --file agentfile.yaml
+# Built hello-world__latest.tar.gz
+af image build --bundle hello-world__latest.tar.gz --tag hello-world-env:latest
+# Built hello-world-env:latest
+export CLAUDE_CODE_OAUTH_TOKEN='ant-...'
+af image run --image hello-world-env:latest --env LOGNAME="itay" --env-auto
+# Hi Itay!
 ```
 
-Notice that our agentfile declared a required variable `CLAUDE_CODE_OAUTH_TOKEN`, which is supplied automatically from the host thanks to the `--env-auto` flag (it needs to be exported on the host first). In addition, we have forwarded the user's login name (`LOGNAME`) to the agent.
+`LOGNAME` was provided on the command line, while `CLAUDE_CODE_OAUTH_TOKEN` was forwarded from the host because the agentfile declares it as a `runtimeEnv`. See the [agentfile environment specification](./reference/agentfile.md#environment) for details.
 
-So far, our examples demonstrated "one-shot" agent - the agent's task was predefined and it ran to completion. But agents can also run interactively.
-
-`af run --tui` lets you chat with the agent in the terminal. This will open the selected harness's native interactive terminal.
+You can override certain fields for a single invocation:
 
 ```bash
-af run code-review --tui --workspace .
+af run --name hello-world --prompt "say something else"
+af run --name hello-world --model "claude-sonnet-4-5"
 ```
 
-`af run --acp` lets you integrate your agents with your IDE, Terminal, or otehr [ACP](https://agentclientprotocol.com)-compatible application.  
-For example, you could spawn your customized code review agent from your IDE, in the context of the project you're currently working on.
+See [Field overrides and diagnostics](./manual.md#field-overrides-and-diagnostics) for details.
 
 ---
 
-# Next steps
+## Interactive Agents
+
+So far, the examples have demonstrated one-shot agents: the task was predefined and ran to completion. Agents can also run interactively.
+
+`af run --name hello-world --tui` opens the selected harness's native interactive terminal so you can chat with the registered agent.
+
+---
+
+## Next Steps
 
 - [Examples](./examples/README.md)
-- [Reference documentation](./reference/reference.md)
+- [Product manual](./manual.md)
+- [Reference specifications](./README.md#reference)

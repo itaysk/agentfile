@@ -2,6 +2,7 @@ package runner
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 	"github.com/itaysk/agentfile/internal/agentfile"
+	"github.com/itaysk/agentfile/internal/bundle"
 	"github.com/itaysk/agentfile/internal/harness"
 )
 
@@ -193,6 +195,101 @@ func TestRunACPStreamsCodexAndPiSessions(t *testing.T) {
 				t.Fatalf("%s input = %q, %v; want prompt", harness, input, err)
 			}
 		})
+	}
+}
+
+func TestRunACPStreamsBundleSession(t *testing.T) {
+	bundlePath := filepath.Join(t.TempDir(), "agent.tar.gz")
+	if err := bundle.Build(runnerTestProject(t), bundlePath); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	harnessLog := filepath.Join(t.TempDir(), "harness.log")
+	inputLog := filepath.Join(t.TempDir(), "input.log")
+	codexPath := filepath.Join(binDir, "codex")
+	writeRunnerTestFile(t, codexPath, `#!/bin/sh
+printf 'args=%s\ncwd=%s\nenv=%s\nhome=%s\n' "$*" "$PWD" "$EXPLICIT" "$CODEX_HOME" > "$ACP_HARNESS_LOG"
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$ACP_INPUT_LOG"
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"id":"%s","result":{"userAgent":"test"}}\n' "$id"
+      ;;
+    *'"method":"thread/start"'*)
+      printf '{"id":"%s","result":{"thread":{"id":"thread-1"}}}\n' "$id"
+      ;;
+    *'"method":"turn/start"'*)
+      printf '{"id":"%s","result":{"turn":{"id":"turn-1"}}}\n' "$id"
+      printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","delta":"Hi"}}'
+      printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+      ;;
+  esac
+done
+`)
+	if err := os.Chmod(codexPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("ACP_HARNESS_LOG", harnessLog)
+	t.Setenv("ACP_INPUT_LOG", inputLog)
+	var warning bytes.Buffer
+	process := startACPTestProcess(t, Options{
+		BundlePath:    bundlePath,
+		Env:           map[string]string{"EXPLICIT": "value"},
+		Model:         "gpt-bundle",
+		Stderr:        io.Discard,
+		WarningStderr: &warning,
+	})
+	process.send(t, 1, "initialize", map[string]any{"protocolVersion": 1})
+	process.response(t, 1)
+	workspace := t.TempDir()
+	agentWorkspace, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource := filepath.Join(workspace, "README.md")
+	if err := os.WriteFile(resource, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	process.send(t, 2, "session/new", map[string]any{"cwd": workspace, "mcpServers": []any{}})
+	sessionID := process.response(t, 2)["result"].(map[string]any)["sessionId"].(string)
+	process.send(t, 3, "session/prompt", map[string]any{
+		"sessionId": sessionID,
+		"prompt": []any{
+			map[string]any{"type": "text", "text": "hello"},
+			map[string]any{"type": "resource_link", "uri": "file://" + filepath.ToSlash(resource), "name": "README.md"},
+		},
+	})
+	if got := process.response(t, 3)["result"].(map[string]any)["stopReason"]; got != "end_turn" {
+		t.Fatalf("prompt stopReason = %v, want end_turn", got)
+	}
+	process.send(t, 4, "session/close", map[string]any{"sessionId": sessionID})
+	process.response(t, 4)
+	process.close(t)
+
+	harnessData, err := os.ReadFile(harnessLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"args=--dangerously-bypass-approvals-and-sandbox --model gpt-bundle app-server", "cwd=" + agentWorkspace, "env=value"} {
+		if !strings.Contains(string(harnessData), want) {
+			t.Fatalf("harness log = %q, want %q", harnessData, want)
+		}
+	}
+	input, err := os.ReadFile(inputLog)
+	if err != nil || !strings.Contains(string(input), filepath.ToSlash(filepath.Join(agentWorkspace, "README.md"))) {
+		t.Fatalf("harness input = %q, %v; want host resource path", input, err)
+	}
+	if !strings.Contains(warning.String(), "without isolation") {
+		t.Fatalf("warning = %q", warning.String())
+	}
+	for _, line := range strings.Split(string(harnessData), "\n") {
+		if strings.HasPrefix(line, "home=") {
+			if _, err := os.Stat(strings.TrimPrefix(line, "home=")); !os.IsNotExist(err) {
+				t.Fatalf("temporary profile still exists: %v", err)
+			}
+		}
 	}
 }
 

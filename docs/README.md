@@ -3,19 +3,21 @@
 - [Installation](install.md) — Install the Agentfile CLI.
 - [Tutorial](tutorial.md) — Walk through Agentfile's core concepts.
 - [Examples](examples/) — Explore example agentfiles and assets.
-- [Use cases](use-cases/) — What you can do with Agentfile.
+- [Use cases](use-cases.md) — What you can do with Agentfile.
 
 ## Reference
 
-- [Reference manual](reference/reference.md) — Product manual and implementation specification.
+- [Product manual](manual.md) — Product concepts and workflows.
+- [agentfile specification](reference/agentfile.md) — Source YAML, defaults, sources, and discovery.
 - [Harness reference](reference/harness.md) — Harness-specific mappings.
 - [Agent bundle format](reference/bundle.md) — Portable artifact spec.
 - [Agent image format](reference/image.md) — Container image contract.
 - [Agent image entrypoint](reference/entrypoint.md) — Container-start behavior.
-- [`runa`](reference/runa.md) — Host bundle runner.
+- [Bundle runtime](reference/runa.md) — Host bundle execution.
 - [agentfile schema](reference/agentfile.schema.json) — agentfile JSON Schema.
-- [agentfile schema example](reference/agentfile.yaml) — Full agentfile yaml reference.
+- [agentfile schema example](reference/agentfile.yaml) — Full agentfile YAML reference.
 - [CLI reference](reference/cli.sh) — CLI commands and flags.
+
 
 ## Examples and snippets
 

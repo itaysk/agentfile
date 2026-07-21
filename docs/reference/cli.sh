@@ -1,37 +1,73 @@
-af --help # show help & usage
+af --help # show help and usage
 
-af build \ # build an agent image (default) or portable bundle
-    --target image|bundle \ # artifact type. Default: image
-    --file agentfile.yaml \  # use given agentfile. Short: -f. Relative to current directory or absolute. Default: agentfile.yaml
-    --bundle myagent.tar.gz \ # image input that replaces --file; valid only for image builds
-    --base-image myregistry.example/agent-base:latest \ # base image override; valid only for image builds. Default: selected harness image
-    --tag myregistry.example/myagent:latest \ # image tag; valid only for image builds. Default: metadata.name:metadata.version
-    --output myagent.tar.gz \ # bundle path; valid only for bundle builds. Default: metadata.name-metadata.version.tar.gz
+af bundle build \ # build an agent bundle
+    --file agentfile.yaml \ # source agentfile. Short: -f. Default: agentfile.yaml
+    --output myagent.tar.gz # output path. Default: <name>__<version>.tar.gz
 
-af run # alias to af agents run
+af build \ # exact convenience equivalent of af bundle build
+    --file agentfile.yaml \
+    --output myagent.tar.gz
+
+af bundle run \ # run a bundle on the host; unsandboxed
+    --bundle myagent.tar.gz \ # required bundle selector
+    --tui \ # open the harness's native interactive terminal. Mutually exclusive with --acp and --prompt
+    --acp \ # serve the bundle to an ACP client over stdio. Mutually exclusive with --tui, --prompt, and --workspace
+    --prompt "say hi" \ # replace the default one-shot prompt. Mutually exclusive with --tui and --acp
+    --model claude-sonnet-4-5 \ # replace the default model for this run
+    --workspace /path/to/dir \ # use an existing workspace directory. Alias: --ws
+    --env KEY[=VALUE] \ # set an environment variable; omit VALUE to use the current environment
+    --env-file FILE \ # load environment variables from an .env file
+    --env-auto \ # accept declared runtime variables from the inherited environment
+    --debug # stream agent stderr; failed one-shot stderr is printed even without this flag
+
+af image build \ # build an agent image from a bundle
+    --bundle myagent.tar.gz \ # required bundle selector
+    --base-image myregistry.example/agent-base:latest \ # override the harness's default base image
+    --tag myregistry.example/myagent:latest # image tag. Default: <name>:<version>
+
+af image run \ # run an image with Docker
+    --image myregistry.example/myagent:latest \ # required image selector
+    --tui \ # open the harness's native interactive terminal. Mutually exclusive with --acp and --prompt
+    --acp \ # serve the image to an ACP client over stdio. Mutually exclusive with --tui, --prompt, and --workspace
+    --prompt "say hi" \
+    --model claude-sonnet-4-5 \
+    --workspace /path/to/dir \
+    --env KEY[=VALUE] \
+    --env-file FILE \
+    --env-auto \
+    --debug
+
+af agents run \ # run a registered agent
+    --name myagent \ # required registered-name selector
+    --tui \ # open the harness's native interactive terminal
+    --acp \ # serve the registered bundle or image to an ACP client over stdio
+    --prompt "say hi" \
+    --model claude-sonnet-4-5 \
+    --workspace /path/to/dir \
+    --env KEY[=VALUE] \
+    --env-file FILE \
+    --env-auto \
+    --debug
+
+af run \ # convenience dispatcher; exactly one selector is required
+    --bundle myagent.tar.gz | \ # equivalent to af bundle run --bundle myagent.tar.gz
+    --image myregistry.example/myagent:latest | \ # equivalent to af image run --image myregistry.example/myagent:latest
+    --name myagent \ # equivalent to af agents run --name myagent
+    --tui \
+    --acp \ # serve the selected bundle or image to an ACP client over stdio
+    --prompt "say hi" \
+    --model claude-sonnet-4-5 \
+    --workspace /path/to/dir \
+    --env KEY[=VALUE] \
+    --env-file FILE \
+    --env-auto \
+    --debug
+
+af agents register \ # register a managed bundle or local Agentfile image
+    --name myagent \ # optional; inferred from bundle metadata or image labels
+    --bundle myagent.tar.gz | --image myregistry.example/myagent:latest # exactly one is required
 
 af agents list # list registered agents
 
-af agents run \ # run agent
-    myagent \ # name of registered agent
-    --file agentfile.yaml \  # build agent first from given agentfile. Short: -f. Mutually exclusive with NAME, --bundle, and --image
-    --bundle myagent.tar.gz \ # run an existing bundle with runa
-    --image myregistry.example/myagent:latest \ # run an image directly with Docker
-    --host \ # run a source agentfile with runa instead of Docker; unsandboxed
-    --tui \ # open the harness's native interactive terminal. Mutually exclusive with --acp and --prompt
-    --acp \ # serve the agent to an ACP client over stdio. Mutually exclusive with --tui, --prompt and --workspace
-    --prompt "say hi" \ # replace the agent's default one-shot prompt. Mutually exclusive with --tui and --acp
-    --model claude-sonnet-4-5 \ # replace the agent's default model for this run
-    --workspace /path/to/dir \ # use an existing workspace directory. Alias: --ws
-    --env KEY[=VALUE] \ # set an environment variable for the invocation. if VALUE is omitted, use the current environment
-    --env-file FILE \ # load environment variables from an .env file
-    --env-auto \ # export runtime variables declared in the agentfile from the host environment
-    --debug # stream build progress and agent stderr; failed one-shot stderr is printed even without this flag
-
-af agents register \ # register an agent
-    myagent \ # name of agent
-    --file agentfile.yaml # use given agentfile. Short: -f. Relative to current directory or absolute. Default: agentfile.yaml
-    --image myregistry.example/myagent:latest # local image with build.agentfile labels from af build
-
 af agents remove \ # remove a registered agent
-    myagent # name of agent to remove
+    --name myagent # required registered name

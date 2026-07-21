@@ -19,7 +19,7 @@ import (
 	"github.com/itaysk/agentfile/internal/harness"
 )
 
-const Warning = "af: warning: runa runs the agent as the current user without isolation or approval gates"
+const Warning = "af: warning: bundle execution uses the current user without isolation or approval gates"
 
 type Options struct {
 	BundlePath    string
@@ -69,7 +69,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	env, err := invocationEnv(options.EnvFiles, options.Env)
+	env, err := InvocationEnv(options.EnvFiles, options.Env)
 	if err != nil {
 		return 1, err
 	}
@@ -85,7 +85,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 	}
 	cmd := exec.CommandContext(ctx, command.Executable, command.Args...)
 	cmd.Dir = command.Dir
-	cmd.Env = envList(command.Env)
+	cmd.Env = EnvList(command.Env)
 	cmd.Stdin = options.Stdin
 	cmd.Stdout = options.Stdout
 	var failureStderr strings.Builder
@@ -97,7 +97,7 @@ func Run(ctx context.Context, options Options) (int, error) {
 	}
 	if err := cmd.Start(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return 1, fmt.Errorf("runa requires %q on PATH: %w", command.Executable, err)
+			return 1, fmt.Errorf("running a bundle requires %q on PATH: %w", command.Executable, err)
 		}
 		return 1, fmt.Errorf("start %s: %w", command.Executable, err)
 	}
@@ -135,7 +135,8 @@ func prepareWorkspace(tempDir, selected string) (string, error) {
 	return filepath.EvalSymlinks(selected)
 }
 
-func invocationEnv(files []string, explicit map[string]string) (map[string]string, error) {
+// InvocationEnv returns the inherited bundle environment with files and explicit values applied.
+func InvocationEnv(files []string, explicit map[string]string) (map[string]string, error) {
 	env := map[string]string{}
 	for _, entry := range os.Environ() {
 		key, value, ok := strings.Cut(entry, "=")
@@ -193,7 +194,8 @@ func readEnvFile(path string, env map[string]string) (map[string]string, error) 
 	return values, nil
 }
 
-func envList(env map[string]string) []string {
+// EnvList converts an environment map to the form expected by exec.Cmd.
+func EnvList(env map[string]string) []string {
 	result := make([]string, 0, len(env))
 	for _, key := range slices.Sorted(maps.Keys(env)) {
 		result = append(result, key+"="+env[key])
