@@ -134,6 +134,7 @@ The command hierarchy is:
 | `af image build --bundle FILE [--base-image REF] [--tag TAG]` | — |
 | `af image run --image REF [RUN FLAGS]` | `af run --image REF [RUN FLAGS]` |
 | `af agents run --name NAME [RUN FLAGS]` | `af run --name NAME [RUN FLAGS]` |
+| `af ps` | — |
 | `af agents register [--name NAME] (--bundle FILE \| --image REF)` | — |
 | `af agents list` | — |
 | `af agents remove --name NAME` | — |
@@ -252,6 +253,19 @@ Streams depend on the execution mode:
 Image pull progress is always written to standard error.
 
 One-shot and TUI runs preserve the harness exit code. An ACP run exits when the client closes the protocol connection; session harness failures are reported through ACP. Errors detected by `af` before the harness starts exit with status 1. Docker invocation failures may use Docker's own exit code.
+
+### List running agents
+
+`af ps` lists local agent invocations started through `af`:
+
+```text
+PID    AGENT     RUNTIME  MODE  STARTED
+12345  reviewer  bundle   tui   2026-07-22T10:11:12Z
+```
+
+The table is ordered by start time. `AGENT` is the registered name, image reference, or bundle path used to start the run. `STARTED` is an RFC 3339 UTC timestamp. An ACP bridge is one running invocation regardless of its session count.
+
+Run records are stored under `$UserCacheDir/agentfile/runs` and removed when the invocation exits. `af ps` also removes records left unlocked by a crash. Runs started directly with Docker, Kubernetes, or another tool or user are not included.
 
 ## Register agents by name
 

@@ -2,10 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/itaysk/agentfile/internal/agentfile"
 	"github.com/itaysk/agentfile/internal/bundle"
@@ -13,12 +15,28 @@ import (
 	"github.com/itaysk/agentfile/internal/registry"
 )
 
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "agentfile-cli-test-cache-*")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("XDG_CACHE_HOME", dir); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("HOME", dir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 func TestHelpDescribesBundlePrimaryHierarchy(t *testing.T) {
 	for _, tt := range []struct {
 		args []string
 		want []string
 	}{
-		{nil, []string{"build", "bundle build", "bundle run", "image build", "image run", "agents register"}},
+		{nil, []string{"build", "run", "ps", "bundle build", "bundle run", "image build", "image run", "agents register"}},
 		{[]string{"bundle", "--help"}, []string{"af bundle", "build", "run"}},
 		{[]string{"image", "--help"}, []string{"af image", "build", "run"}},
 		{[]string{"agents", "--help"}, []string{"af agents", "register", "remove"}},
@@ -35,6 +53,78 @@ func TestHelpDescribesBundlePrimaryHierarchy(t *testing.T) {
 			if !strings.Contains(stdout.String(), want) {
 				t.Fatalf("Run(%q) stdout = %q, want %q", tt.args, stdout.String(), want)
 			}
+		}
+	}
+}
+
+func TestPSListsActiveRunsAndCleansStaleRecords(t *testing.T) {
+	isolateCLICache(t)
+	started := time.Date(2026, 7, 22, 10, 11, 12, 0, time.UTC)
+	stop, err := trackRun(runningAgent{PID: os.Getpid(), Agent: "reviewer", Runtime: "bundle", Mode: "tui", Started: started})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopLater, err := trackRun(runningAgent{PID: os.Getpid() + 1, Agent: "writer", Runtime: "image", Mode: "acp", Started: started.Add(time.Minute)})
+	if err != nil {
+		stop()
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"ps"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run(ps) = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{"PID", "AGENT", "RUNTIME", "MODE", "STARTED", "reviewer", "bundle", "tui", "2026-07-22T10:11:12Z"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("af ps output = %q, want %q", stdout.String(), want)
+		}
+	}
+	if strings.Index(stdout.String(), "reviewer") > strings.Index(stdout.String(), "writer") {
+		t.Fatalf("af ps output is not oldest first: %q", stdout.String())
+	}
+	stop()
+	stopLater()
+
+	dir, err := runsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, "stale.json")
+	data, err := json.Marshal(runningAgent{PID: 1, Agent: "stale", Runtime: "image", Mode: "one-shot", Started: started})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"ps"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run(ps) = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "reviewer") || strings.Contains(stdout.String(), "stale") {
+		t.Fatalf("af ps output after exits = %q", stdout.String())
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale run state still exists: %v", err)
+	}
+}
+
+func TestPSHelpAndArguments(t *testing.T) {
+	for _, tt := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"ps", "--help"}, 0, "usage: af ps"},
+		{[]string{"ps", "extra"}, 1, "ps does not accept arguments"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(tt.args, &stdout, &stderr); code != tt.code {
+			t.Fatalf("Run(%q) = %d, stderr = %q", tt.args, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String()+stderr.String(), tt.want) {
+			t.Fatalf("Run(%q) output = %q, want %q", tt.args, stdout.String()+stderr.String(), tt.want)
 		}
 	}
 }
@@ -486,6 +576,13 @@ func isolateCLIConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
 	t.Setenv("AppData", dir)
+}
+
+func isolateCLICache(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("HOME", dir)
 }
 
 func registeredBundlePath(t *testing.T, name string) string {

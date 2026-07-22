@@ -63,6 +63,8 @@ af run \ # convenience dispatcher; exactly one selector is required
     --env-auto \
     --debug
 
+af ps # list local agents currently running through af
+
 af agents register \ # register a managed bundle or local Agentfile image
     --name myagent \ # optional; inferred from bundle metadata or image labels
     --bundle myagent.tar.gz | --image myregistry.example/myagent:latest # exactly one is required

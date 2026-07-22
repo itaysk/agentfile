@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/itaysk/agentfile/internal/agentfile"
 	"github.com/itaysk/agentfile/internal/bundle"
@@ -37,6 +38,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		err = runBundleBuild(args[1:], stdout, "af build")
 	case "run":
 		code, err = runAgent(args[1:], stdout, stderr, allSelectors, "af run")
+	case "ps":
+		err = runPS(args[1:], stdout)
 	case "bundle":
 		code, err = runBundleCommands(args[1:], stdout, stderr)
 	case "image":
@@ -189,6 +192,30 @@ func runAgent(args []string, stdout, stderr io.Writer, allowed runSelector, comm
 	runOptions.Stderr = runStderr
 	runOptions.FailureStderr = failureStderr
 	runOptions.WarningStderr = stderr
+	agent, runtime := options.bundle, "bundle"
+	if options.image != "" {
+		agent, runtime = options.image, "image"
+	} else if options.name != "" {
+		agent = options.name
+		if runOptions.ImageRef != "" {
+			runtime = "image"
+		}
+	}
+	mode := string(options.mode)
+	if options.mode == "" || options.mode == harness.ModeOneShot {
+		mode = "one-shot"
+	}
+	stopTracking, err := trackRun(runningAgent{
+		PID:     os.Getpid(),
+		Agent:   agent,
+		Runtime: runtime,
+		Mode:    mode,
+		Started: time.Now().UTC(),
+	})
+	if err != nil {
+		return 1, fmt.Errorf("track running agent: %w", err)
+	}
+	defer stopTracking()
 	return runner.Run(context.Background(), runOptions)
 }
 
@@ -354,6 +381,7 @@ func printHelp(w io.Writer) {
 Commands:
   build              build a bundle (alias for af bundle build)
   run                run a bundle, image, or registered agent
+  ps                 list running agents
   bundle build       build a bundle
   bundle run         run a bundle
   image build        build an image from a bundle
